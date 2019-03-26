@@ -1,0 +1,11 @@
+python-telegram-bot
+requests
+pyqrcode==1.2.1
+pypng
+############# wallet #
+pyzbar  # on linux install sudo apt-get install libzbar0
+grpcio
+grpcio-tools
+googleapis-common-protos
+protobuf
+Pillow

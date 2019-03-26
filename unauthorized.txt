@@ -1,0 +1,1 @@
+datetime,username,first_name,last_name,id,is_bot,text_msg
