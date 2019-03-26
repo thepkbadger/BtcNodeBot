@@ -125,7 +125,7 @@ class RemoteNode:
             self.onlineLightning = False
             return {"online": None, "msg": "Exception: " + text}
 
-    def get_ln_node_info(self):
+    def get_ln_info(self):
         try:
             self.get_ip()
             conn_string = "ssh " + self.user + "@" + self.remote_ip + " -i " + self.ssh_pkey_file + " "

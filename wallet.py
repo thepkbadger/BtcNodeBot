@@ -22,7 +22,7 @@ class Wallet:
         else:
             self.node = RemoteNode("remote", pkey_name="id_rsa", ip="192.168.1.10")  # TODO arguments
 
-    # TODO implement decodeInvoice, getNodeInfo for local and remote node
+    # TODO implement decodeInvoice, getNodeInfo for remote node
     def decodeInvoice(self, input_data, qr=True):
         try:
             if qr:
@@ -38,35 +38,16 @@ class Wallet:
             if text[:10] == "lightning:":
                 text = text[10:]
 
-            proc = subprocess.Popen("lncli decodepayreq --pay_req " + shlex.quote(text), shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-            response = proc.communicate()
-            err = response[1].decode("utf-8")
-            if err == "":
-                decoded_data = json.loads(response[0].decode("utf-8"))
-                info_data = self.getNodeInfo(decoded_data["destination"])  # get destination node info, alias...
+            decoded_data, error = self.node.decode_ln_invoice(pay_req=text)
+            if error is None:
+                info_data, error_info = self.node.get_ln_node_info(pub_key=decoded_data["destination"])  # get destination node info, alias...
                 ret_data = {"decoded": decoded_data, "destination_node": info_data, "raw_invoice": text}
                 return ret_data, True
-            if proc.returncode is None:
-                proc.kill()
             return "this is not valid invoice", False
 
         except Exception as e:
             logToFile("Exception at decoding invoice input data: "+str(e))
             return "there was error at decoding", False
-
-    def getNodeInfo(self, pub_key):
-        try:
-            proc = subprocess.Popen("lncli getnodeinfo --pub_key " + pub_key, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-            response = proc.communicate()
-            err = response[1].decode("utf-8")
-            if err == "":
-                info_data = json.loads(response[0].decode("utf-8"))
-                return info_data
-            if proc.returncode is None:
-                proc.kill()
-            return None
-        except Exception as e:
-            return None
 
     def formatDecodedInvoice(self, data, lb_symbol="\n"):
 
@@ -116,7 +97,7 @@ class Wallet:
         return self.node.add_ln_invoice(value, memo, expiry)
 
     def getInfo(self):
-        return self.node.get_ln_node_info()
+        return self.node.get_ln_info()
 
     def getOnchainAddress(self, type="p2wkh"):
         try:

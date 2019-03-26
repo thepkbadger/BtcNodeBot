@@ -81,7 +81,7 @@ class LocalNode:
             if proc.returncode is None:
                 proc.kill()
 
-            [lninfo, err_ln_getinfo] = self.get_ln_node_info()
+            [lninfo, err_ln_getinfo] = self.get_ln_info()
 
             if err_blockchaininfo != "" or err_networkinfo != "":
                 err_networkinfo = err_networkinfo.replace('\n', '')
@@ -135,13 +135,33 @@ class LocalNode:
             self.onlineLightning = False
             return {"online": None, "msg": "Exception: " + text}
 
-    def get_ln_node_info(self):
+    def decode_ln_invoice(self, pay_req):
+        try:
+            request = ln.PayReqString(pay_req=pay_req)
+            response = self.stub.DecodePayReq(request)
+            return MessageToDict(response, including_default_value_fields=True), None
+        except Exception as e:
+            text = str(e)
+            logToFile("Exception decode_ln_invoice: " + text)
+            return None, text
+
+    def get_ln_node_info(self, pub_key):
+        try:
+            request = ln.NodeInfoRequest(pub_key=pub_key)
+            response = self.stub.GetNodeInfo(request)
+            return MessageToDict(response, including_default_value_fields=True), None
+        except Exception as e:
+            text = str(e)
+            logToFile("Exception get_ln_node_info: " + text)
+            return None, text
+
+    def get_ln_info(self):
         try:
             response = self.stub.GetInfo(ln.GetInfoRequest())
             return MessageToDict(response, including_default_value_fields=True), None
         except Exception as e:
             text = str(e)
-            logToFile("Exception get_ln_node_info: " + text)
+            logToFile("Exception get_ln_info: " + text)
             return None, text
 
     def get_ln_onchain_address(self, addr_type="p2wkh"):
