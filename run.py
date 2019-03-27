@@ -1,5 +1,6 @@
 import telegram
-from telegram.ext import Updater, CommandHandler, MessageHandler, Filters
+from telegram.ext import Updater, CommandHandler, MessageHandler, Filters, CallbackQueryHandler
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 from functools import wraps
 import logging
 import os
@@ -7,15 +8,20 @@ import json
 import pyqrcode
 import threading
 import uuid
-from helper import logToFile, parameter_split
+from helper import logToFile, parameter_split, build_menu
 from wallet import Wallet
 
 
 def restricted(func):
     @wraps(func)
     def wrapped(self, bot, update, *args, **kwargs):
-        data = update["message"]
-        from_user = data.from_user
+        if update.callback_query is not None:
+            from_user = update.effective_user
+            data = update["callback_query"]["message"]
+        else:
+            data = update["message"]
+            from_user = data.from_user
+
         if (from_user.username is None) or (from_user.username not in self.access_whitelist_user):  # user is not authorized
             with open(self.root_dir + "/unauthorized.txt", "a") as file:
                 file.write(data.date.strftime("%Y-%m-%d %H:%M:%S") + "," + str(from_user.username) + "," + str(
@@ -45,13 +51,13 @@ class Bot:
         self.dispatcher.add_handler(msghandler)
         imagehandler = MessageHandler(Filters.photo, self.image_handle)
         self.dispatcher.add_handler(imagehandler)
+        callbackqhandler = CallbackQueryHandler(self.callback_handle)
+        self.dispatcher.add_handler(callbackqhandler)
 
         comm_handler = CommandHandler('commands', self.commands)
         self.dispatcher.add_handler(comm_handler)
         walletCancelPayHandler = CommandHandler('cancel_payment', self.cancelPayment)
         self.dispatcher.add_handler(walletCancelPayHandler)
-        walletPayHandler = CommandHandler('pay', self.executePayment)
-        self.dispatcher.add_handler(walletPayHandler)
         walletOnchainAddressHandler = CommandHandler('wallet_addr', self.walletOnchainAddress)
         self.dispatcher.add_handler(walletOnchainAddressHandler)
         walletBalanceHandler = CommandHandler('wallet_balance', self.walletBalance)
@@ -83,6 +89,43 @@ class Bot:
         self.updater.stop()
         logToFile("telegram bot message listening stopped")
 
+    def confirm_menu(self):
+        button_list = [
+            InlineKeyboardButton("Yes", callback_data="payment_yes"),
+            InlineKeyboardButton("No", callback_data="payment_no")
+        ]
+        conf_menu = build_menu(button_list, n_cols=2)
+        return InlineKeyboardMarkup(conf_menu)
+
+    def executePayment(self, username, chat_id):
+        invoice_data = self.userdata[username]["wallet"]["invoice"]
+        if invoice_data is not None:
+            raw_pay_req = invoice_data["raw_invoice"]
+            paythread = threading.Thread(
+                target=self.LNwallet.payInvoice,
+                args=[raw_pay_req, self.updater.bot, chat_id, username]
+            )
+            paythread.start()
+            self.updater.bot.send_message(chat_id=chat_id, text="Sending payment...")
+        else:
+            self.updater.bot.send_message(chat_id=chat_id, text="You don't have any invoice to pay.")
+
+    @restricted
+    def callback_handle(self, bot, update):
+        query = update.callback_query
+        param = query.data.split('_')
+
+        # TODO fix remove keyboard
+        bot.send_message(chat_id=query.message.chat_id, text="...", message_id=query.message.message_id)
+
+        if param[0] == "payment":
+            if param[1] == "yes":
+                self.executePayment(update.effective_user.username, query.message.chat_id)
+            elif param[1] == "no":
+                self.cancelPayment(bot, update)
+        else:
+            bot.send_message(chat_id=query.message.chat_id, text="callback parameters not valid")
+
     @restricted
     def commands(self, bot, update):
         pass
@@ -96,10 +139,9 @@ class Bot:
             value, isValid = self.LNwallet.decodeInvoice(cmd, qr=False)  # isValid = True means it is valid LN invoice
             if isValid:
                 msgtext = self.LNwallet.formatDecodedInvoice(value)
-                bot.send_message(chat_id=msg.chat_id,
-                                 text=msgtext + "\n/pay for payment or /cancel_payment",  # TODO return menu choice
-                                 parse_mode=telegram.ParseMode.HTML)
+                bot.send_message(chat_id=msg.chat_id, text=msgtext, parse_mode=telegram.ParseMode.HTML)
                 self.userdata[msg.from_user.username]["wallet"]["invoice"] = value
+                bot.send_message(chat_id=msg.chat_id, text="Do you want to pay invoice?", reply_markup=self.confirm_menu())
                 return
 
     @restricted
@@ -117,40 +159,29 @@ class Bot:
             os.remove(temp_path_local)
         if isValid:
             msgtext = self.LNwallet.formatDecodedInvoice(value)
-            bot.send_message(chat_id=msg.chat_id,
-                                 text=msgtext + "\n/pay for payment or /cancel_payment",  # TODO return menu choice
-                                 parse_mode=telegram.ParseMode.HTML)
+            bot.send_message(chat_id=msg.chat_id, text=msgtext, parse_mode=telegram.ParseMode.HTML)
             self.userdata[msg.from_user.username]["wallet"]["invoice"] = value
+            bot.send_message(chat_id=msg.chat_id, text="Do you want to pay invoice?", reply_markup=self.confirm_menu())
         else:
             bot.send_message(chat_id=msg.chat_id, text="I'm sorry " + value + ".🙀")
 
     @restricted
     def cancelPayment(self, bot, update):
-        msg = update["message"]
+        if update["message"] is not None:  # command execution
+            msg = update["message"]
+            username = msg.from_user.username
+            chat_id = msg.chat_id
+        else:  # call from callback handler
+            username = update.effective_user.username
+            chat_id = update.callback_query.message.chat_id
 
-        invoice_data = self.userdata[msg.from_user.username]["wallet"]["invoice"]
+        invoice_data = self.userdata[username]["wallet"]["invoice"]
         if invoice_data is not None:
             amt = invoice_data["decoded"]["num_satoshis"]
-            self.userdata[msg.from_user.username]["wallet"]["invoice"] = None
-            bot.send_message(chat_id=msg.chat_id, text="Payment of " + str(amt) + " sats cancelled.")
+            self.userdata[username]["wallet"]["invoice"] = None
+            bot.send_message(chat_id=chat_id, text="Payment of " + str(amt) + " sats cancelled.")
         else:
-            bot.send_message(chat_id=msg.chat_id, text="You don't have any invoice to cancel.")
-
-    @restricted
-    def executePayment(self, bot, update):
-        msg = update["message"]
-
-        invoice_data = self.userdata[msg.from_user.username]["wallet"]["invoice"]
-        if invoice_data is not None:
-            raw_pay_req = invoice_data["raw_invoice"]
-            paythread = threading.Thread(
-                target=self.LNwallet.payInvoice,
-                args=[raw_pay_req, self.updater.bot, msg.chat_id, msg.from_user.username]
-            )
-            paythread.start()
-            bot.send_message(chat_id=msg.chat_id, text="Sending payment...")
-        else:
-            bot.send_message(chat_id=msg.chat_id, text="You don't have any invoice to pay.")
+            bot.send_message(chat_id=chat_id, text="You don't have any invoice to cancel.")
 
     @restricted
     def nodeURI(self, bot, update):
