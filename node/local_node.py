@@ -81,7 +81,7 @@ class LocalNode:
             if proc.returncode is None:
                 proc.kill()
 
-            [lninfo, err_ln_getinfo] = self.get_ln_info()
+            lninfo, err_ln_getinfo = self.get_ln_info()
 
             if err_blockchaininfo != "" or err_networkinfo != "":
                 err_networkinfo = err_networkinfo.replace('\n', '')

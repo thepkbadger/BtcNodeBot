@@ -2,10 +2,7 @@ from pyzbar.pyzbar import decode
 from PIL import Image
 import os
 from helper import logToFile
-import subprocess
-import json
 from datetime import timedelta, datetime, timezone
-import shlex
 from node.local_node import LocalNode
 from node.remote_node import RemoteNode
 
