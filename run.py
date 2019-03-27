@@ -115,8 +115,7 @@ class Bot:
         query = update.callback_query
         param = query.data.split('_')
 
-        # TODO fix remove keyboard
-        bot.send_message(chat_id=query.message.chat_id, text="...", message_id=query.message.message_id)
+        bot.delete_message(chat_id=query.message.chat_id, message_id=query.message.message_id)
 
         if param[0] == "payment":
             if param[1] == "yes":
@@ -141,7 +140,7 @@ class Bot:
                 msgtext = self.LNwallet.formatDecodedInvoice(value)
                 bot.send_message(chat_id=msg.chat_id, text=msgtext, parse_mode=telegram.ParseMode.HTML)
                 self.userdata[msg.from_user.username]["wallet"]["invoice"] = value
-                bot.send_message(chat_id=msg.chat_id, text="Do you want to pay invoice?", reply_markup=self.confirm_menu())
+                bot.send_message(chat_id=msg.chat_id, text="Do you want to pay this invoice?", reply_markup=self.confirm_menu())
                 return
 
     @restricted
@@ -161,7 +160,7 @@ class Bot:
             msgtext = self.LNwallet.formatDecodedInvoice(value)
             bot.send_message(chat_id=msg.chat_id, text=msgtext, parse_mode=telegram.ParseMode.HTML)
             self.userdata[msg.from_user.username]["wallet"]["invoice"] = value
-            bot.send_message(chat_id=msg.chat_id, text="Do you want to pay invoice?", reply_markup=self.confirm_menu())
+            bot.send_message(chat_id=msg.chat_id, text="Do you want to pay this invoice?", reply_markup=self.confirm_menu())
         else:
             bot.send_message(chat_id=msg.chat_id, text="I'm sorry " + value + ".🙀")
 
