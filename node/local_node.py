@@ -234,7 +234,7 @@ class LocalNode:
             logToFile("Exception get_balance_report: " + text)
             return None, text
 
-    def subscribe_invoices(self, bot, chat_id):
+    def subscribe_invoices(self, bot, userdata):
         sleep_retry = 65
         sleep_offline = 20
 
@@ -254,7 +254,10 @@ class LocalNode:
                             text += "Amount: " + "{:,}".format(int(json_out["amt_paid_sat"])).replace(',', '.') + " sats\n"
                         if "memo" in json_out and json_out["memo"] != "":
                             text += "Description: " + json_out["memo"]
-                        bot.send_message(chat_id=chat_id, text=text, parse_mode=telegram.ParseMode.HTML)
+                        # send to each user that have chat_id in userdata
+                        for username, data in userdata.items():
+                            if data["chat_id"] is not None:
+                                bot.send_message(chat_id=data["chat_id"], text=text, parse_mode=telegram.ParseMode.HTML)
 
             except Exception as e:
                 print("LiveFeed LocalNode subscribe invoices: connection lost, will retry after " + str(sleep_retry) + " seconds")

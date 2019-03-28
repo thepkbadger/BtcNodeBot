@@ -6,18 +6,32 @@ from datetime import timedelta, datetime, timezone
 from node.local_node import LocalNode
 from node.remote_node import RemoteNode
 import pyotp
+import threading
+from time import sleep
 
 
 class Wallet:
 
     root_path = os.path.dirname(os.path.abspath(__file__))
 
-    def __init__(self, userdata, node_conn="local", unit="sats", enable_otp=False):
+    def __init__(self, bot, userdata, node_conn="local", unit="sats", enable_otp=False):
+        self.bot = bot
         self.enable_otp = enable_otp
         self.userdata = userdata
+        self.threadList = []
         self.unit = unit  # units: sats, mBTC, BTC
-        if node_conn == "local":
-            self.node = LocalNode()  # TODO arguments
+        self.node = LocalNode()  # TODO arguments
+        self.subscribe_notifications()
+
+    def subscribe_notifications(self):
+        subscriptions = [
+            self.node.subscribe_invoices
+        ]
+        for subscription in subscriptions:
+            t = threading.Thread(target=subscription, args=[self.bot, self.userdata])
+            self.threadList.append(t)
+            t.start()
+            sleep(0.1)
 
     def check_otp(self, code):
         if self.enable_otp is False:
@@ -70,10 +84,11 @@ class Wallet:
 
     def payInvoice(self, pay_req, bot, chat_id, username, otp_code=""):
         try:
-            if self.check_otp(otp_code) is False:
-                bot.send_message(chat_id=chat_id, text="I couldn't pay invoice, 2FA code not valid.")
-                return
             sending_msg = bot.send_message(chat_id=chat_id, text="Sending payment...")
+            if self.check_otp(otp_code) is False:
+                bot.edit_message_text(chat_id=chat_id, message_id=sending_msg.message_id, text="I couldn't pay invoice, 2FA code not valid.")
+                return
+
             out_json, error = self.node.pay_ln_invoice(pay_req)
             if error is None:
                 if out_json["payment_error"] != "":

@@ -36,7 +36,7 @@ class Bot:
 
     root_dir = os.path.dirname(os.path.abspath(__file__))
     access_whitelist_user = []
-    userdata = {}
+    userdata = {}  # TODO userdata to db
 
     def __init__(self, otp=False):
         botfile = open(os.path.join(self.root_dir, "private", "telegram_bot_token.json"), "r")
@@ -56,8 +56,8 @@ class Bot:
         callbackqhandler = CallbackQueryHandler(self.callback_handle)
         self.dispatcher.add_handler(callbackqhandler)
 
-        comm_handler = CommandHandler('commands', self.commands)
-        self.dispatcher.add_handler(comm_handler)
+        start_handler = CommandHandler('start', self.start)
+        self.dispatcher.add_handler(start_handler)
         walletCancelPayHandler = CommandHandler('cancel_payment', self.cancelPayment)
         self.dispatcher.add_handler(walletCancelPayHandler)
         walletOnchainAddressHandler = CommandHandler('wallet_addr', self.walletOnchainAddress)
@@ -87,11 +87,11 @@ class Bot:
         self.init_user_data()
 
         # init wallet
-        self.LNwallet = Wallet(self.userdata, enable_otp=self.otp_enabled)
+        self.LNwallet = Wallet(self.updater.bot, self.userdata, enable_otp=self.otp_enabled)
 
     def init_user_data(self):
         for user in self.access_whitelist_user:
-            self.userdata[user] = {"wallet": {"invoice": None}}
+            self.userdata[user] = {"wallet": {"invoice": None}, "chat_id": None}
 
     def run(self):
         self.updater.start_polling()
@@ -137,8 +137,12 @@ class Bot:
             bot.send_message(chat_id=query.message.chat_id, text="callback parameters not valid")
 
     @restricted
-    def commands(self, bot, update):
-        pass
+    def start(self, bot, update):
+        msg = update["message"]
+        if self.userdata[msg.from_user.username]["chat_id"] is None:
+            self.userdata[msg.from_user.username]["chat_id"] = msg.chat_id
+        bot.send_message(chat_id=msg.chat_id, text="TODO print commands")
+        # TODO print commands
 
     @restricted
     def msg_handle(self, bot, update):
@@ -160,6 +164,35 @@ class Bot:
         if re.fullmatch("[0-9]{6}", cmd) is not None:
             self.executePayment(msg.from_user.username, msg.chat_id, code_otp=cmd)
             return
+
+        if "ADD WHITELIST" in cmd.upper():
+            params = cmd.split(' ')
+            if len(params) == 3:
+                username = params[2]
+                if username not in self.access_whitelist_user:
+                    with open(self.root_dir + "/private/whitelist.txt", "a") as file:
+                        file.write(username + "\n")
+                    self.access_whitelist_user.append(username)
+                    self.userdata[username] = {"wallet": {"invoice": None}, "chat_id": None}
+                    bot.send_message(chat_id=msg.chat_id, text=username + " added to whitelist")
+                else:
+                    bot.send_message(chat_id=msg.chat_id, text=username + " already in whitelist")
+
+        elif "REMOVE WHITELIST" in cmd.upper():
+            params = cmd.split(' ')
+            if len(params) == 3:
+                username = params[2]
+                if username in self.access_whitelist_user:
+                    self.access_whitelist_user.remove(username)
+                    with open(self.root_dir + "/private/whitelist.txt", "w") as file:
+                        file.truncate()
+                    with open(self.root_dir + "/private/whitelist.txt", "w") as file:
+                        for user in self.access_whitelist_user:
+                            file.write(user + "\n")
+                    self.userdata.pop(username, None)  # remove user data
+                    bot.send_message(chat_id=msg.chat_id, text=username + " removed from whitelist")
+                else:
+                    bot.send_message(chat_id=msg.chat_id, text=username + " not in whitelist")
 
     @restricted
     def image_handle(self, bot, update):
