@@ -141,7 +141,10 @@ class LocalNode:
             response = self.stub.DecodePayReq(request)
             return MessageToDict(response, including_default_value_fields=True), None
         except Exception as e:
-            text = str(e)
+            if hasattr(e, "_state") and hasattr(e._state, "details"):
+                text = str(e._state.details)
+            else:
+                text = str(e)
             logToFile("Exception decode_ln_invoice: " + text)
             return None, text
 
@@ -151,7 +154,10 @@ class LocalNode:
             response = self.stub.GetNodeInfo(request)
             return MessageToDict(response, including_default_value_fields=True), None
         except Exception as e:
-            text = str(e)
+            if hasattr(e, "_state") and hasattr(e._state, "details"):
+                text = str(e._state.details)
+            else:
+                text = str(e)
             logToFile("Exception get_ln_node_info: " + text)
             return None, text
 
@@ -160,7 +166,10 @@ class LocalNode:
             response = self.stub.GetInfo(ln.GetInfoRequest())
             return MessageToDict(response, including_default_value_fields=True), None
         except Exception as e:
-            text = str(e)
+            if hasattr(e, "_state") and hasattr(e._state, "details"):
+                text = str(e._state.details)
+            else:
+                text = str(e)
             logToFile("Exception get_ln_info: " + text)
             return None, text
 
@@ -174,7 +183,10 @@ class LocalNode:
             response = self.stub.NewAddress(request)
             return MessageToDict(response, including_default_value_fields=True), None
         except Exception as e:
-            text = str(e)
+            if hasattr(e, "_state") and hasattr(e._state, "details"):
+                text = str(e._state.details)
+            else:
+                text = str(e)
             logToFile("Exception get_ln_onchain_address: " + text)
             return None, text
 
@@ -184,7 +196,10 @@ class LocalNode:
             response = self.stub.SendPaymentSync(request)
             return MessageToDict(response, including_default_value_fields=True), None
         except Exception as e:
-            text = str(e)
+            if hasattr(e, "_state") and hasattr(e._state, "details"):
+                text = str(e._state.details)
+            else:
+                text = str(e)
             logToFile("Exception pay_ln_invoice: " + text)
             return None, text
 
@@ -194,7 +209,10 @@ class LocalNode:
             response = self.stub.AddInvoice(request)
             return MessageToDict(response, including_default_value_fields=True), None
         except Exception as e:
-            text = str(e)
+            if hasattr(e, "_state") and hasattr(e._state, "details"):
+                text = str(e._state.details)
+            else:
+                text = str(e)
             logToFile("Exception add_ln_invoice: " + text)
             return None, text
 
@@ -209,7 +227,10 @@ class LocalNode:
             }
             return response, None
         except Exception as e:
-            text = str(e)
+            if hasattr(e, "_state") and hasattr(e._state, "details"):
+                text = str(e._state.details)
+            else:
+                text = str(e)
             logToFile("Exception get_balance_report: " + text)
             return None, text
 

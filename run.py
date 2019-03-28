@@ -5,11 +5,12 @@ from functools import wraps
 import logging
 import os
 import json
-import pyqrcode
+import pyqrcode, pyotp
 import threading
 import uuid
 from helper import logToFile, parameter_split, build_menu
 from wallet import Wallet
+import re
 
 
 def restricted(func):
@@ -37,10 +38,11 @@ class Bot:
     access_whitelist_user = []
     userdata = {}
 
-    def __init__(self):
+    def __init__(self, otp=False):
         botfile = open(os.path.join(self.root_dir, "private", "telegram_bot_token.json"), "r")
         botcred = json.load(botfile)
         botfile.close()
+        self.otp_enabled = otp
 
         logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
         self.logger = logging.getLogger(__name__)
@@ -67,6 +69,16 @@ class Bot:
         nodeURIHandler = CommandHandler('node_uri', self.nodeURI)
         self.dispatcher.add_handler(nodeURIHandler)
 
+        if self.otp_enabled is True:
+            # generate new 2fA secret if doesn't exist
+            if not os.path.isfile(self.root_dir + "/private/OTP.txt"):
+                secret = pyotp.random_base32()
+                with open(self.root_dir + "/private/OTP.txt", "w") as file:
+                    file.write(secret)
+                pr_uri = pyotp.totp.TOTP(secret).provisioning_uri("NodeBot")
+                qr = pyqrcode.create(pr_uri)
+                qr.png(self.root_dir + "/private/OTP.png", scale=5)
+
         # read whitelist
         with open(self.root_dir + "/private/whitelist.txt", "r") as file:
             self.access_whitelist_user = file.readlines()
@@ -75,7 +87,7 @@ class Bot:
         self.init_user_data()
 
         # init wallet
-        self.LNwallet = Wallet(self.userdata)
+        self.LNwallet = Wallet(self.userdata, enable_otp=self.otp_enabled)
 
     def init_user_data(self):
         for user in self.access_whitelist_user:
@@ -97,16 +109,15 @@ class Bot:
         conf_menu = build_menu(button_list, n_cols=2)
         return InlineKeyboardMarkup(conf_menu)
 
-    def executePayment(self, username, chat_id):
+    def executePayment(self, username, chat_id, code_otp=""):
         invoice_data = self.userdata[username]["wallet"]["invoice"]
         if invoice_data is not None:
             raw_pay_req = invoice_data["raw_invoice"]
             paythread = threading.Thread(
                 target=self.LNwallet.payInvoice,
-                args=[raw_pay_req, self.updater.bot, chat_id, username]
+                args=[raw_pay_req, self.updater.bot, chat_id, username, code_otp]
             )
             paythread.start()
-            self.updater.bot.send_message(chat_id=chat_id, text="Sending payment...")
         else:
             self.updater.bot.send_message(chat_id=chat_id, text="You don't have any invoice to pay.")
 
@@ -138,10 +149,17 @@ class Bot:
             value, isValid = self.LNwallet.decodeInvoice(cmd, qr=False)  # isValid = True means it is valid LN invoice
             if isValid:
                 msgtext = self.LNwallet.formatDecodedInvoice(value)
-                bot.send_message(chat_id=msg.chat_id, text=msgtext, parse_mode=telegram.ParseMode.HTML)
                 self.userdata[msg.from_user.username]["wallet"]["invoice"] = value
-                bot.send_message(chat_id=msg.chat_id, text="Do you want to pay this invoice?", reply_markup=self.confirm_menu())
+                if self.otp_enabled:
+                    bot.send_message(chat_id=msg.chat_id, text=msgtext + "\n<i>send me 2FA code for payment or</i> /cancel_payment", parse_mode=telegram.ParseMode.HTML)
+                else:
+                    bot.send_message(chat_id=msg.chat_id, text=msgtext, parse_mode=telegram.ParseMode.HTML)
+                    bot.send_message(chat_id=msg.chat_id, text="Do you want to pay this invoice?", reply_markup=self.confirm_menu())
                 return
+
+        if re.fullmatch("[0-9]{6}", cmd) is not None:
+            self.executePayment(msg.from_user.username, msg.chat_id, code_otp=cmd)
+            return
 
     @restricted
     def image_handle(self, bot, update):
@@ -158,9 +176,12 @@ class Bot:
             os.remove(temp_path_local)
         if isValid:
             msgtext = self.LNwallet.formatDecodedInvoice(value)
-            bot.send_message(chat_id=msg.chat_id, text=msgtext, parse_mode=telegram.ParseMode.HTML)
             self.userdata[msg.from_user.username]["wallet"]["invoice"] = value
-            bot.send_message(chat_id=msg.chat_id, text="Do you want to pay this invoice?", reply_markup=self.confirm_menu())
+            if self.otp_enabled:
+                bot.send_message(chat_id=msg.chat_id, text=msgtext + "\n<i>send me 2FA code for payment or</i> /cancel_payment", parse_mode=telegram.ParseMode.HTML)
+            else:
+                bot.send_message(chat_id=msg.chat_id, text=msgtext, parse_mode=telegram.ParseMode.HTML)
+                bot.send_message(chat_id=msg.chat_id, text="Do you want to pay this invoice?", reply_markup=self.confirm_menu())
         else:
             bot.send_message(chat_id=msg.chat_id, text="I'm sorry " + value + ".🙀")
 
@@ -298,5 +319,5 @@ class Bot:
 
 
 if __name__ == "__main__":
-    nodebot = Bot()
+    nodebot = Bot(otp=False)
     nodebot.run()

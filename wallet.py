@@ -5,21 +5,30 @@ from helper import logToFile
 from datetime import timedelta, datetime, timezone
 from node.local_node import LocalNode
 from node.remote_node import RemoteNode
+import pyotp
 
 
 class Wallet:
 
     root_path = os.path.dirname(os.path.abspath(__file__))
 
-    def __init__(self, userdata, node_conn="local", unit="sats"):
+    def __init__(self, userdata, node_conn="local", unit="sats", enable_otp=False):
+        self.enable_otp = enable_otp
         self.userdata = userdata
         self.unit = unit  # units: sats, mBTC, BTC
         if node_conn == "local":
             self.node = LocalNode()  # TODO arguments
-        else:
-            self.node = RemoteNode("remote", pkey_name="id_rsa", ip="192.168.1.10")  # TODO arguments
 
-    # TODO implement decodeInvoice, getNodeInfo for remote node
+    def check_otp(self, code):
+        if self.enable_otp is False:
+            return True
+        with open(self.root_path + "/private/OTP.txt", "r") as file:
+            secret = file.readline()
+            totp = pyotp.TOTP(secret)
+            if code == totp.now():
+                return True
+        return False
+
     def decodeInvoice(self, input_data, qr=True):
         try:
             if qr:
@@ -59,12 +68,16 @@ class Wallet:
             + "Expiration: " + d_time_expiration.strftime('%d.%m.%Y %H:%M:%S %z') + lb_symbol \
             + "Description: " + data["decoded"]["description"] + lb_symbol
 
-    def payInvoice(self, pay_req, bot, chat_id, username):
+    def payInvoice(self, pay_req, bot, chat_id, username, otp_code=""):
         try:
+            if self.check_otp(otp_code) is False:
+                bot.send_message(chat_id=chat_id, text="I couldn't pay invoice, 2FA code not valid.")
+                return
+            sending_msg = bot.send_message(chat_id=chat_id, text="Sending payment...")
             out_json, error = self.node.pay_ln_invoice(pay_req)
             if error is None:
                 if out_json["payment_error"] != "":
-                    bot.send_message(chat_id=chat_id, text="I couldn't pay invoice, " + str(out_json["payment_error"]))
+                    bot.edit_message_text(chat_id=chat_id, message_id=sending_msg.message_id, text="I couldn't pay invoice, " + str(out_json["payment_error"]))
                     return
                 else:
                     # as soon as we know payment was successful, clear invoice from user data
@@ -81,14 +94,14 @@ class Wallet:
                                + "Total fees: " + "{:,}".format(int(total_fees)).replace(',', '.') + " msats\n" \
                                + "hops: " + str(num_hops) + "\n"
                     import telegram
-                    bot.send_message(chat_id=chat_id, text=msg_text, parse_mode=telegram.ParseMode.HTML)
+                    bot.edit_message_text(chat_id=chat_id, message_id=sending_msg.message_id, text=msg_text, parse_mode=telegram.ParseMode.HTML)
                     return
 
-            bot.send_message(chat_id=chat_id, text="I couldn't pay invoice, there was an error.")
+            bot.edit_message_text(chat_id=chat_id, message_id=sending_msg.message_id, text="I couldn't pay invoice, " + str(error))
         except Exception as e:
             text = str(e)
             logToFile("Exception payInvoice wallet: " + text)
-            bot.send_message(chat_id=chat_id, text="I couldn't pay invoice, there was an error.")
+            bot.edit_message_text(chat_id=chat_id, message_id=sending_msg.message_id, text="I couldn't pay invoice, there was an error.")
 
     def addInvoice(self, memo="", value=0, expiry=3600):
         return self.node.add_ln_invoice(value, memo, expiry)
@@ -149,11 +162,11 @@ class Wallet:
                         if int(channel["remote_balance"]) > balance["channels"]["effective_max_inbound_payment"]:
                             balance["channels"]["effective_max_inbound_payment"] = int(channel["remote_balance"])
                     else:
-                        node_alias = self.getNodeInfo(channel["remote_pubkey"])
-                        if node_alias is None:
+                        info_data, error_info = self.node.get_ln_node_info(pub_key=channel["remote_pubkey"])
+                        if info_data is None:
                             balance["channels"]["inactive_aliases"].append(channel["remote_pubkey"][:12])
                         else:
-                            balance["channels"]["inactive_aliases"].append(node_alias["node"]["alias"])
+                            balance["channels"]["inactive_aliases"].append(info_data["node"]["alias"])
 
                 balance["num_active"] = num_active
                 return balance, None
