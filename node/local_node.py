@@ -262,3 +262,53 @@ class LocalNode:
             except Exception as e:
                 print("LiveFeed LocalNode subscribe invoices: connection lost, will retry after " + str(sleep_retry) + " seconds")
                 sleep(sleep_retry)
+
+    def subscribe_channel_events(self, bot, userdata):
+        sleep_retry = 65
+        sleep_offline = 20
+
+        while True:
+            if not self.onlineBitcoin or not self.onlineLightning:
+                sleep(sleep_offline)  # if we know node is offline, sleep and retry
+                continue
+
+            try:
+                request = ln.ChannelEventSubscription()
+                for response in self.stub.SubscribeChannelEvents(request):
+                    json_out = MessageToDict(response, including_default_value_fields=True)
+                    text = ""
+                    if "type" in json_out and json_out["type"] == "OPEN_CHANNEL":
+                        channel_data = json_out["open_channel"]
+                        text = "<b>New channel opened</b>\n"
+                        info_data, error_info = self.get_ln_node_info(pub_key=channel_data["remote_pubkey"])
+                        if info_data is None:
+                            text += channel_data["remote_pubkey"] + "\n"
+                        else:
+                            text += info_data["node"]["alias"] + "\n"
+                        text += "Capacity: " + "{:,}".format(int(channel_data["capacity"])).replace(',', '.') + " sats\n"
+                        text += "Local Balance: " + "{:,}".format(int(channel_data["local_balance"])).replace(',', '.') + " sats\n"
+                        text += "Remote Balance: " + "{:,}".format(int(channel_data["remote_balance"])).replace(',', '.') + " sats\n"
+                        text += "Time Lock: " + str(channel_data["csv_delay"]) + "\n"
+                        private = "yes" if channel_data["private"] else "no"
+                        text += "Private: " + private
+
+                    elif "type" in json_out and json_out["type"] == "CLOSED_CHANNEL":
+                        channel_data = json_out["closed_channel"]
+                        text = "<b>Channel closed</b>\n"
+                        info_data, error_info = self.get_ln_node_info(pub_key=channel_data["remote_pubkey"])
+                        if info_data is None:
+                            text += channel_data["remote_pubkey"] + "\n"
+                        else:
+                            text += info_data["node"]["alias"] + "\n"
+                        text += "Capacity: " + "{:,}".format(int(channel_data["capacity"])).replace(',', '.') + " sats\n"
+                        text += "txid: <a href='https://blockstream.info/tx/" + channel_data["closing_tx_hash"] + "'>"+channel_data["closing_tx_hash"][:15]+"...</a>\n"
+                        text += "Closure Type: " + str(channel_data["close_type"])
+
+                    if text != "":
+                        for username, data in userdata.items():
+                            if data["chat_id"] is not None:
+                                bot.send_message(chat_id=data["chat_id"], text=text, parse_mode=telegram.ParseMode.HTML, disable_web_page_preview=True)
+
+            except Exception as e:
+                print("LiveFeed LocalNode subscribe channel events: connection lost, will retry after " + str(sleep_retry) + " seconds")
+                sleep(sleep_retry)
