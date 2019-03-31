@@ -25,6 +25,7 @@ class Wallet:
 
     def subscribe_notifications(self):
         subscriptions = [
+            self.node.subscribe_node_watcher,
             self.node.subscribe_invoices
         ]
         for subscription in subscriptions:

@@ -6,11 +6,9 @@ import os
 from os.path import join, expandvars, expanduser
 import codecs
 from sys import platform
-import json
 from helper import logToFile
 from time import sleep
 import telegram
-import subprocess
 
 
 class LocalNode:
@@ -19,22 +17,28 @@ class LocalNode:
 
     def __init__(self, ln_host="127.0.0.1", ln_port=10009, ln_dir="", net="mainnet", ln_cert_path="", ln_admin_macaroon_path=""):
         # init ln
-        channel = self.init_ln_connection(ln_host, ln_port, net, ln_dir, ln_cert_path, ln_admin_macaroon_path)
+        self.ln_host = ln_host
+        self.ln_port = ln_port
+        self.net = net
+        self.ln_dir = ln_dir
+        self.ln_cert_path = ln_cert_path
+        self.ln_admin_macaroon_path = ln_admin_macaroon_path
+
+        channel = self.init_ln_connection()
         self.stub = lnrpc.LightningStub(channel)
 
-        self.onlineBitcoin = False
-        self.onlineLightning = False
+        self.nodeOnline = False
         self.check_node_online()
 
-    def init_ln_connection(self, host, port, net, root_dir, ln_cert_path, ln_admin_macaroon_path):
+    def init_ln_connection(self):
         os.environ["GRPC_SSL_CIPHER_SUITES"] = 'HIGH+ECDSA'
 
-        if ln_cert_path != "" and ln_admin_macaroon_path != "":
-            lnd_cert_path = ln_cert_path
-            lnd_admin_macaroon_path = ln_admin_macaroon_path
+        if self.ln_cert_path != "" and self.ln_admin_macaroon_path != "":
+            lnd_cert_path = self.ln_cert_path
+            lnd_admin_macaroon_path = self.ln_admin_macaroon_path
         else:
-            if root_dir != "":
-                lnd_root_dir = root_dir  # custom location
+            if self.ln_dir != "":
+                lnd_root_dir = self.ln_dir  # custom location
             else:
                 # default locations
                 if platform.startswith("win32") or platform.startswith("cygwin"):  # windows
@@ -47,7 +51,7 @@ class LocalNode:
                     lnd_root_dir = join(self.root_path, "..", "lnd")
 
             lnd_cert_path = join(lnd_root_dir, "tls.cert")
-            lnd_admin_macaroon_path = join(lnd_root_dir, "data", "chain", "bitcoin", net, "admin.macaroon")
+            lnd_admin_macaroon_path = join(lnd_root_dir, "data", "chain", "bitcoin", self.net, "admin.macaroon")
 
         cert = open(lnd_cert_path, 'rb').read()
         with open(lnd_admin_macaroon_path, 'rb') as f:
@@ -61,79 +65,60 @@ class LocalNode:
         # combine the cert credentials and the macaroon auth credentials
         combined_creds = grpc.composite_channel_credentials(cert_creds, auth_creds)
 
-        return grpc.secure_channel(str(host) + ":" + str(port), combined_creds)
+        return grpc.secure_channel(str(self.ln_host) + ":" + str(self.ln_port), combined_creds)
 
-    def check_node_online(self, backend_tolerate_sync_thr=1, ln_tolerate_sync_thr=1):
+    def check_node_online(self, wait_on_not_synced=60):
         try:
-            proc = subprocess.Popen("bitcoin-cli getblockchaininfo", shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-            response = proc.communicate()
-            err_blockchaininfo = response[1].decode("utf-8")
-            if err_blockchaininfo == "":
-                blockchaininfo = json.loads(response[0].decode("utf-8"))
-            if proc.returncode is None:
-                proc.kill()
+            first = True
+            while True:
+                lninfo, err_ln_getinfo = self.get_ln_info()
 
-            proc = subprocess.Popen("bitcoin-cli getnetworkinfo", shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-            response = proc.communicate()
-            err_networkinfo = response[1].decode("utf-8")
-            if err_networkinfo == "":
-                networkinfo = json.loads(response[0].decode("utf-8"))
-            if proc.returncode is None:
-                proc.kill()
-
-            lninfo, err_ln_getinfo = self.get_ln_info()
-
-            if err_blockchaininfo != "" or err_networkinfo != "":
-                err_networkinfo = err_networkinfo.replace('\n', '')
-                err_networkinfo = err_networkinfo.replace('\r', '')
-                err_blockchaininfo = err_blockchaininfo.replace('\n', '')
-                err_blockchaininfo = err_blockchaininfo.replace('\r', '')
-                self.onlineBitcoin = False
-                self.onlineLightning = False
-                return {"bitcoind": {"online": False, "msg": "stderrs: [" + err_blockchaininfo + "] [" + err_networkinfo + "]"}, "ln": {"online": False}}
-
-            elif err_ln_getinfo is not None:
-                self.onlineBitcoin = True
-                self.onlineLightning = False
-                return {
-                    "bitcoind": {
-                        "online": True,
-                        "subversion": networkinfo["subversion"],
-                        "protocolversion": networkinfo["protocolversion"],
-                        "blocks": blockchaininfo["blocks"],
-                        "headers": blockchaininfo["headers"],
-                        "synced": True if (blockchaininfo["headers"] - blockchaininfo[
-                            "blocks"]) <= backend_tolerate_sync_thr else False
-                    },
-                    "ln": {"online": False, "msg": "stderrs: [" + err_ln_getinfo + "]"}
-                }
-            else:
-                self.onlineBitcoin = True
-                self.onlineLightning = True
-                return {
-                    "bitcoind": {
-                        "online": True,
-                        "subversion": networkinfo["subversion"],
-                        "protocolversion": networkinfo["protocolversion"],
-                        "blocks": blockchaininfo["blocks"],
-                        "headers": blockchaininfo["headers"],
-                        "synced": True if (blockchaininfo["headers"] - blockchaininfo[
-                            "blocks"]) <= backend_tolerate_sync_thr else False
-                    },
-                    "ln": {
+                if err_ln_getinfo is not None:
+                    self.nodeOnline = False
+                    return {"online": False, "msg": err_ln_getinfo}
+                else:
+                    if first and lninfo["synced_to_chain"] is False:
+                        first = False
+                        # wait and check again, to prevent false positives on slow hardware
+                        # lightning node 1 block behind, when checking
+                        sleep(wait_on_not_synced)
+                        continue
+                    self.nodeOnline = True
+                    return {
                         "online": True,
                         "block_height": lninfo["block_height"],
-                        "synced": True if (blockchaininfo["headers"] - lninfo["block_height"]) <= ln_tolerate_sync_thr else False,
+                        "synced": lninfo["synced_to_chain"],
                         "version": lninfo["version"]
                     }
-                }
-
         except Exception as e:
             text = str(e)
             logToFile("Exception check_node_online: " + text)
-            self.onlineBitcoin = False
-            self.onlineLightning = False
+            self.nodeOnline = False
             return {"online": None, "msg": "Exception: " + text}
+
+    def subscribe_node_watcher(self, bot, userdata, time_delta=1*60):
+        try:
+            while True:
+                response = self.check_node_online()
+                text = ""
+                if response["online"] is False:
+                    text = "Lightning node is offline!"
+                elif response["online"] is None:
+                    text = "Cannot check lightning node status, there was error (check logs)."
+                else:
+                    if response["synced"] is False:
+                        text = "Lightning node not synced!\nNode height: "+str(response["block_height"])
+
+                if text != "":
+                    for username, data in userdata.items():
+                        if data["chat_id"] is not None and data["wallet"]["node_watch_mute"] is False:
+                            bot.send_message(chat_id=data["chat_id"], text=text, parse_mode=telegram.ParseMode.HTML)
+                sleep(time_delta)
+
+        except Exception as e:
+            text = "Exception LiveFeed LocalNode subscribe node watcher: " + str(e)
+            logToFile(text)
+            print(text)
 
     def decode_ln_invoice(self, pay_req):
         try:
@@ -239,7 +224,7 @@ class LocalNode:
         sleep_offline = 20
 
         while True:
-            if not self.onlineBitcoin or not self.onlineLightning:
+            if not self.nodeOnline:
                 sleep(sleep_offline)  # if we know node is offline, sleep and retry
                 continue
 
@@ -268,7 +253,7 @@ class LocalNode:
         sleep_offline = 20
 
         while True:
-            if not self.onlineBitcoin or not self.onlineLightning:
+            if not self.nodeOnline:
                 sleep(sleep_offline)  # if we know node is offline, sleep and retry
                 continue
 

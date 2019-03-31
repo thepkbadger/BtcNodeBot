@@ -58,6 +58,10 @@ class Bot:
 
         start_handler = CommandHandler('start', self.start)
         self.dispatcher.add_handler(start_handler)
+        node_watch_mute_handler = CommandHandler('node_watch_mute', self.node_watch_mute)
+        self.dispatcher.add_handler(node_watch_mute_handler)
+        node_watch_unmute_handler = CommandHandler('node_watch_unmute', self.node_watch_unmute)
+        self.dispatcher.add_handler(node_watch_unmute_handler)
         walletCancelPayHandler = CommandHandler('cancel_payment', self.cancelPayment)
         self.dispatcher.add_handler(walletCancelPayHandler)
         walletOnchainAddressHandler = CommandHandler('wallet_addr', self.walletOnchainAddress)
@@ -91,7 +95,7 @@ class Bot:
 
     def init_user_data(self):
         for user in self.access_whitelist_user:
-            self.userdata[user] = {"wallet": {"invoice": None}, "chat_id": None}
+            self.userdata[user] = {"wallet": {"invoice": None, "node_watch_mute": False}, "chat_id": None}
 
     def run(self):
         self.updater.start_polling()
@@ -145,6 +149,18 @@ class Bot:
         # TODO print commands
 
     @restricted
+    def node_watch_mute(self, bot, update):
+        msg = update["message"]
+        self.userdata[msg.from_user.username]["wallet"]["node_watch_mute"] = True
+        bot.send_message(chat_id=msg.chat_id, text="Node status notifications disabled.")
+
+    @restricted
+    def node_watch_unmute(self, bot, update):
+        msg = update["message"]
+        self.userdata[msg.from_user.username]["wallet"]["node_watch_mute"] = False
+        bot.send_message(chat_id=msg.chat_id, text="Node status notifications enabled.")
+
+    @restricted
     def msg_handle(self, bot, update):
         msg = update["message"]
         cmd = msg.text
@@ -173,7 +189,7 @@ class Bot:
                     with open(self.root_dir + "/private/whitelist.txt", "a") as file:
                         file.write(username + "\n")
                     self.access_whitelist_user.append(username)
-                    self.userdata[username] = {"wallet": {"invoice": None}, "chat_id": None}
+                    self.userdata[username] = {"wallet": {"invoice": None, "node_watch_mute": False}, "chat_id": None}
                     bot.send_message(chat_id=msg.chat_id, text=username + " added to whitelist")
                 else:
                     bot.send_message(chat_id=msg.chat_id, text=username + " already in whitelist")
