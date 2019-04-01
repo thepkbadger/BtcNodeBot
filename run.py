@@ -8,9 +8,10 @@ import json
 import pyqrcode, pyotp
 import threading
 import uuid
-from helper import logToFile, parameter_split, build_menu
+from helper import logToFile, build_menu
 from wallet import Wallet
 import re
+from userdata import UserData
 
 
 def restricted(func):
@@ -36,7 +37,6 @@ class Bot:
 
     root_dir = os.path.dirname(os.path.abspath(__file__))
     access_whitelist_user = []
-    userdata = {}  # TODO userdata to db
 
     def __init__(self, otp=False):
         botfile = open(os.path.join(self.root_dir, "private", "telegram_bot_token.json"), "r")
@@ -88,14 +88,10 @@ class Bot:
             self.access_whitelist_user = file.readlines()
         self.access_whitelist_user = [x.strip() for x in self.access_whitelist_user]
         # init user data
-        self.init_user_data()
+        self.userdata = UserData(self.access_whitelist_user)
 
         # init wallet
         self.LNwallet = Wallet(self.updater.bot, self.userdata, enable_otp=self.otp_enabled)
-
-    def init_user_data(self):
-        for user in self.access_whitelist_user:
-            self.userdata[user] = {"wallet": {"invoice": None, "node_watch_mute": False}, "chat_id": None}
 
     def run(self):
         self.updater.start_polling()
@@ -113,8 +109,18 @@ class Bot:
         conf_menu = build_menu(button_list, n_cols=2)
         return InlineKeyboardMarkup(conf_menu)
 
+    def add_invoice_menu(self):
+        button_list = [
+            InlineKeyboardButton("Amount", callback_data="addinvoice_amt"),
+            InlineKeyboardButton("Description", callback_data="addinvoice_desc"),
+            InlineKeyboardButton("Expiry", callback_data="addinvoice_expiry"),
+            InlineKeyboardButton("Generate", callback_data="addinvoice_generate")
+        ]
+        add_invoice_menu = build_menu(button_list, n_cols=2)
+        return InlineKeyboardMarkup(add_invoice_menu)
+
     def executePayment(self, username, chat_id, code_otp=""):
-        invoice_data = self.userdata[username]["wallet"]["invoice"]
+        invoice_data = self.userdata.get_wallet_payinvoice(username)
         if invoice_data is not None:
             raw_pay_req = invoice_data["raw_invoice"]
             paythread = threading.Thread(
@@ -125,51 +131,134 @@ class Bot:
         else:
             self.updater.bot.send_message(chat_id=chat_id, text="You don't have any invoice to pay.")
 
+    def addInvoice(self, username, chat_id):
+        try:
+            self.updater.bot.send_chat_action(chat_id=chat_id, action=telegram.ChatAction.TYPING)
+            invoice_data = self.userdata.get_add_invoice_data(username)
+            ret, err = self.LNwallet.addInvoice(value=invoice_data["amount"], memo=invoice_data["description"], expiry=invoice_data["expiry"])
+
+            if err is None:
+                self.updater.bot.send_chat_action(chat_id=chat_id, action=telegram.ChatAction.TYPING)
+                payment_request = ret["pay_req"] if "pay_req" in ret else ret["payment_request"]
+                qr = pyqrcode.create(payment_request)
+                temp_file_qr = os.path.join(self.root_dir, "temp", str(uuid.uuid4().hex) + ".png")
+                qr.png(temp_file_qr, scale=5)
+
+                self.updater.bot.send_photo(chat_id=chat_id, photo=open(temp_file_qr, "rb"))
+                self.updater.bot.send_message(chat_id=chat_id, text=payment_request)
+                if os.path.exists(temp_file_qr):
+                    os.remove(temp_file_qr)
+            else:
+                self.updater.bot.send_message(chat_id=chat_id, text="I couldn't create invoice, there was an error.")
+        except Exception as e:
+            logToFile("Exception createInvoice: " + str(e))
+            self.updater.bot.send_message(chat_id=chat_id, text="I couldn't create invoice, there was an error.")
+
     @restricted
     def callback_handle(self, bot, update):
         query = update.callback_query
         param = query.data.split('_')
+        username = update.effective_user.username
 
         bot.delete_message(chat_id=query.message.chat_id, message_id=query.message.message_id)
 
         if param[0] == "payment":
             if param[1] == "yes":
-                self.executePayment(update.effective_user.username, query.message.chat_id)
+                self.executePayment(username, query.message.chat_id)
             elif param[1] == "no":
                 self.cancelPayment(bot, update)
+        elif param[0] == "addinvoice":
+            if param[1] == "amt":
+                self.userdata.set_conv_state(username, "createInvoice_amount")
+                bot.send_message(chat_id=query.message.chat_id, text="Write amount in sats or BTC.")
+            elif param[1] == "desc":
+                self.userdata.set_conv_state(username, "createInvoice_description")
+                bot.send_message(chat_id=query.message.chat_id, text="Write description.")
+            elif param[1] == "expiry":
+                self.userdata.set_conv_state(username, "createInvoice_expiry")
+                bot.send_message(chat_id=query.message.chat_id, text="How much time you want invoice to be valid? seconds (add 's' after number) or hours (add 'h')")
+            elif param[1] == "generate":
+                self.userdata.set_conv_state(username, None)
+                self.addInvoice(username, query.message.chat_id)
         else:
             bot.send_message(chat_id=query.message.chat_id, text="callback parameters not valid")
 
     @restricted
     def start(self, bot, update):
         msg = update["message"]
-        if self.userdata[msg.from_user.username]["chat_id"] is None:
-            self.userdata[msg.from_user.username]["chat_id"] = msg.chat_id
+        if self.userdata.get_chat_id(msg.from_user.username) is None:
+            self.userdata.set_chat_id(msg.from_user.username, msg.chat_id)
         bot.send_message(chat_id=msg.chat_id, text="TODO print commands")
         # TODO print commands
 
     @restricted
     def node_watch_mute(self, bot, update):
         msg = update["message"]
-        self.userdata[msg.from_user.username]["wallet"]["node_watch_mute"] = True
+        self.userdata.set_node_watch_mute(msg.from_user.username, True)
         bot.send_message(chat_id=msg.chat_id, text="Node status notifications disabled.")
 
     @restricted
     def node_watch_unmute(self, bot, update):
         msg = update["message"]
-        self.userdata[msg.from_user.username]["wallet"]["node_watch_mute"] = False
+        self.userdata.set_node_watch_mute(msg.from_user.username, False)
         bot.send_message(chat_id=msg.chat_id, text="Node status notifications enabled.")
+
+    @restricted
+    def createInvoice(self, bot, update):
+        msg = update["message"]
+        self.userdata.delete_add_invoice_data(msg.from_user.username)
+        bot.send_message(chat_id=msg.chat_id, text="Give me details about invoice or press generate for default values.", reply_markup=self.add_invoice_menu())
+        self.userdata.set_conv_state(msg.from_user.username, "createInvoice")
 
     @restricted
     def msg_handle(self, bot, update):
         msg = update["message"]
         cmd = msg.text
+        username = msg.from_user.username
+
+        if self.userdata.get_conv_state(username) == "createInvoice_amount":
+            try:
+                if cmd.find(".") > 0 or cmd.find(",") > 0:
+                    self.userdata.set_add_invoice_data(username, "amount", float(cmd)*100000000)
+                else:
+                    self.userdata.set_add_invoice_data(username, "amount", int(cmd))
+            except Exception as e:
+                bot.delete_message(chat_id=msg.chat_id, message_id=msg.message_id)
+                bot.send_message(chat_id=msg.chat_id, text="Provided amount value is not valid.", reply_markup=self.add_invoice_menu())
+                self.userdata.set_conv_state(msg.from_user.username, "createInvoice")
+                return
+        if self.userdata.get_conv_state(username) == "createInvoice_description":
+            self.userdata.set_add_invoice_data(username, "description", cmd)
+
+        if self.userdata.get_conv_state(username) == "createInvoice_expiry":
+            try:
+                if cmd[-1:].lower() == "s":
+                    expiry = int(cmd[:-1])
+                    self.userdata.set_add_invoice_data(username, "expiry", expiry)
+                elif cmd[-1:].lower() == "h":
+                    expiry = int(cmd[:-1]) * 3600
+                    self.userdata.set_add_invoice_data(username, "expiry", expiry)
+                else:
+                    bot.delete_message(chat_id=msg.chat_id, message_id=msg.message_id)
+                    bot.send_message(chat_id=msg.chat_id, text="Provided expiry value is not valid.", reply_markup=self.add_invoice_menu())
+                    self.userdata.set_conv_state(msg.from_user.username, "createInvoice")
+                    return
+            except Exception as e:
+                bot.delete_message(chat_id=msg.chat_id, message_id=msg.message_id)
+                bot.send_message(chat_id=msg.chat_id, text="Provided expiry value is not valid.", reply_markup=self.add_invoice_menu())
+                self.userdata.set_conv_state(msg.from_user.username, "createInvoice")
+                return
+
+        if self.userdata.get_conv_state(username) in ["createInvoice_amount", "createInvoice_description", "createInvoice_expiry"]:
+            bot.send_message(chat_id=msg.chat_id, text="Give me details about invoice or press generate for default values.", reply_markup=self.add_invoice_menu())
+            self.userdata.set_conv_state(msg.from_user.username, "createInvoice")
+            return
 
         if cmd.lower()[:4] in ["lnbc", "lntb"] or cmd.lower()[:10] == "lightning:":  # LN invoice
             value, isValid = self.LNwallet.decodeInvoice(cmd, qr=False)  # isValid = True means it is valid LN invoice
             if isValid:
                 msgtext = self.LNwallet.formatDecodedInvoice(value)
-                self.userdata[msg.from_user.username]["wallet"]["invoice"] = value
+                self.userdata.set_wallet_payinvoice(msg.from_user.username, value)
                 if self.otp_enabled:
                     bot.send_message(chat_id=msg.chat_id, text=msgtext + "\n<i>send me 2FA code for payment or</i> /cancel_payment", parse_mode=telegram.ParseMode.HTML)
                 else:
@@ -189,7 +278,7 @@ class Bot:
                     with open(self.root_dir + "/private/whitelist.txt", "a") as file:
                         file.write(username + "\n")
                     self.access_whitelist_user.append(username)
-                    self.userdata[username] = {"wallet": {"invoice": None, "node_watch_mute": False}, "chat_id": None}
+                    self.userdata.add_new_user(username)
                     bot.send_message(chat_id=msg.chat_id, text=username + " added to whitelist")
                 else:
                     bot.send_message(chat_id=msg.chat_id, text=username + " already in whitelist")
@@ -205,7 +294,7 @@ class Bot:
                     with open(self.root_dir + "/private/whitelist.txt", "w") as file:
                         for user in self.access_whitelist_user:
                             file.write(user + "\n")
-                    self.userdata.pop(username, None)  # remove user data
+                    self.userdata.remove_user(username)
                     bot.send_message(chat_id=msg.chat_id, text=username + " removed from whitelist")
                 else:
                     bot.send_message(chat_id=msg.chat_id, text=username + " not in whitelist")
@@ -225,7 +314,7 @@ class Bot:
             os.remove(temp_path_local)
         if isValid:
             msgtext = self.LNwallet.formatDecodedInvoice(value)
-            self.userdata[msg.from_user.username]["wallet"]["invoice"] = value
+            self.userdata.set_wallet_payinvoice(msg.from_user.username, value)
             if self.otp_enabled:
                 bot.send_message(chat_id=msg.chat_id, text=msgtext + "\n<i>send me 2FA code for payment or</i> /cancel_payment", parse_mode=telegram.ParseMode.HTML)
             else:
@@ -244,10 +333,10 @@ class Bot:
             username = update.effective_user.username
             chat_id = update.callback_query.message.chat_id
 
-        invoice_data = self.userdata[username]["wallet"]["invoice"]
+        invoice_data = self.userdata.get_wallet_payinvoice(username)
         if invoice_data is not None:
             amt = invoice_data["decoded"]["num_satoshis"]
-            self.userdata[username]["wallet"]["invoice"] = None
+            self.userdata.set_wallet_payinvoice(username, None)
             bot.send_message(chat_id=chat_id, text="Payment of " + str(amt) + " sats cancelled.")
         else:
             bot.send_message(chat_id=chat_id, text="You don't have any invoice to cancel.")
@@ -318,54 +407,6 @@ class Bot:
             bot.send_message(chat_id=msg.chat_id, text=self.LNwallet.formatBalanceOutput(ret), parse_mode=telegram.ParseMode.HTML)
         else:
             bot.send_message(chat_id=msg.chat_id, text="Error at acquiring balance report.")
-
-    @restricted
-    def createInvoice(self, bot, update):  # /receive [amt=amount in sats] [desc="description"] [expiry=number{s|h}]
-        msg = update["message"]
-
-        bot.send_chat_action(chat_id=msg.chat_id, action=telegram.ChatAction.TYPING)
-        try:
-            success, flags, values = parameter_split(msg.text, valid_flags=["amt", "desc", "expiry"])
-            if success is False:
-                bot.send_message(chat_id=msg.chat_id, text="Provided parameters are not valid.")
-                return
-
-            value_sats = 0
-            description = ""
-            expiry = 3600
-            for idx, flag in enumerate(flags):
-                if flag == "amt":
-                    value_sats = int(values[idx])
-                elif flag == "desc":
-                    description = values[idx]
-                elif flag == "expiry":
-                    if values[idx][-1:].lower() == "s":
-                        expiry = int(values[idx][:-1])
-                    elif values[idx][-1:].lower() == "h":
-                        expiry = int(values[idx][:-1]) * 3600
-                    else:
-                        bot.send_message(chat_id=msg.chat_id, text="Provided parameters are not valid.")
-                        return
-
-            ret, err = self.LNwallet.addInvoice(value=value_sats, memo=description, expiry=expiry)
-
-            if err is None:
-                bot.send_chat_action(chat_id=msg.chat_id, action=telegram.ChatAction.TYPING)
-                payment_request = ret["pay_req"] if "pay_req" in ret else ret["payment_request"]
-                qr = pyqrcode.create(payment_request)
-                temp_file_qr = os.path.join(self.root_dir, "temp", str(uuid.uuid4().hex) + ".png")
-                qr.png(temp_file_qr, scale=5)
-
-                bot.send_photo(chat_id=msg.chat_id, photo=open(temp_file_qr, "rb"))
-                bot.send_message(chat_id=msg.chat_id, text=payment_request)
-                if os.path.exists(temp_file_qr):
-                    os.remove(temp_file_qr)
-            else:
-                bot.send_message(chat_id=msg.chat_id, text="I couldn't create invoice, there was an error.")
-        except Exception as e:
-            logToFile("Exception createInvoice: " + str(e))
-            bot.send_message(chat_id=msg.chat_id, text="I couldn't create invoice, there was an error. Check if all parameters are correct.")
-
 
 if __name__ == "__main__":
     nodebot = Bot(otp=False)

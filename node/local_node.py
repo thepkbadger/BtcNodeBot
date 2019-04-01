@@ -96,7 +96,7 @@ class LocalNode:
             self.nodeOnline = False
             return {"online": None, "msg": "Exception: " + text}
 
-    def subscribe_node_watcher(self, bot, userdata, time_delta=1*60):
+    def subscribe_node_watcher(self, bot, userdata, time_delta=10*60):
         try:
             while True:
                 response = self.check_node_online()
@@ -110,9 +110,10 @@ class LocalNode:
                         text = "Lightning node not synced!\nNode height: "+str(response["block_height"])
 
                 if text != "":
-                    for username, data in userdata.items():
-                        if data["chat_id"] is not None and data["wallet"]["node_watch_mute"] is False:
-                            bot.send_message(chat_id=data["chat_id"], text=text, parse_mode=telegram.ParseMode.HTML)
+                    for username in userdata.get_usernames():
+                        if userdata.get_chat_id(username) is not None and userdata.get_node_watch_mute(username) is False:
+                            chat_id = userdata.get_chat_id(username)
+                            bot.send_message(chat_id=chat_id, text=text, parse_mode=telegram.ParseMode.HTML)
                 sleep(time_delta)
 
         except Exception as e:
@@ -240,9 +241,10 @@ class LocalNode:
                         if "memo" in json_out and json_out["memo"] != "":
                             text += "Description: " + json_out["memo"]
                         # send to each user that have chat_id in userdata
-                        for username, data in userdata.items():
-                            if data["chat_id"] is not None:
-                                bot.send_message(chat_id=data["chat_id"], text=text, parse_mode=telegram.ParseMode.HTML)
+                        for username in userdata.get_usernames():
+                            if userdata.get_chat_id(username) is not None:
+                                chat_id = userdata.get_chat_id(username)
+                                bot.send_message(chat_id=chat_id, text=text, parse_mode=telegram.ParseMode.HTML)
 
             except Exception as e:
                 print("LiveFeed LocalNode subscribe invoices: connection lost, will retry after " + str(sleep_retry) + " seconds")
@@ -290,9 +292,10 @@ class LocalNode:
                         text += "Closure Type: " + str(channel_data["close_type"])
 
                     if text != "":
-                        for username, data in userdata.items():
-                            if data["chat_id"] is not None:
-                                bot.send_message(chat_id=data["chat_id"], text=text, parse_mode=telegram.ParseMode.HTML, disable_web_page_preview=True)
+                        for username in userdata.get_usernames():
+                            if userdata.get_chat_id(username) is not None:
+                                chat_id = userdata.get_chat_id(username)
+                                bot.send_message(chat_id=chat_id, text=text, parse_mode=telegram.ParseMode.HTML, disable_web_page_preview=True)
 
             except Exception as e:
                 print("LiveFeed LocalNode subscribe channel events: connection lost, will retry after " + str(sleep_retry) + " seconds")
