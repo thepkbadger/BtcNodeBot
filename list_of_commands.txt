@@ -1,0 +1,6 @@
+node_watch_mute - mute node status notifications (node offline or not synced)
+node_watch_unmute - unmute node status notifications
+node_uri - Get node URI
+wallet_addr - Get onchain bech32 or compatibility address
+wallet_balance - Get lightning node balance report
+wallet_receive - Create lightning invoice

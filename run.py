@@ -47,6 +47,9 @@ class Bot:
         logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
         self.logger = logging.getLogger(__name__)
 
+        with open(self.root_dir + "/list_of_commands.txt", "r") as file:
+            self.commands = file.readlines()
+
         self.updater = Updater(token=botcred["token"], request_kwargs={'read_timeout': 6})
         self.dispatcher = self.updater.dispatcher
         msghandler = MessageHandler(Filters.text, self.msg_handle)
@@ -119,7 +122,17 @@ class Bot:
         add_invoice_menu = build_menu(button_list, n_cols=2)
         return InlineKeyboardMarkup(add_invoice_menu)
 
+    def new_address_menu(self):
+        button_list = [
+            InlineKeyboardButton("Compatibility (np2wkh)", callback_data="newaddress_compatibility"),
+            InlineKeyboardButton("Native SegWit (bech32)", callback_data="newaddress_nativesegwit")
+        ]
+        new_address_menu = build_menu(button_list, n_cols=2)
+        return InlineKeyboardMarkup(new_address_menu)
+
     def executePayment(self, username, chat_id, code_otp=""):
+        if self.userdata.get_conv_state(username) == "payinvoice_otp":
+            self.userdata.set_conv_state(username, None)
         invoice_data = self.userdata.get_wallet_payinvoice(username)
         if invoice_data is not None:
             raw_pay_req = invoice_data["raw_invoice"]
@@ -149,10 +162,29 @@ class Bot:
                 if os.path.exists(temp_file_qr):
                     os.remove(temp_file_qr)
             else:
-                self.updater.bot.send_message(chat_id=chat_id, text="I couldn't create invoice, there was an error.")
+                self.updater.bot.send_message(chat_id=chat_id, text="I couldn't create invoice, "+str(err)+".")
         except Exception as e:
-            logToFile("Exception createInvoice: " + str(e))
+            logToFile("Exception addInvoice: " + str(e))
             self.updater.bot.send_message(chat_id=chat_id, text="I couldn't create invoice, there was an error.")
+
+    def getNewOnchainAddress(self, chat_id, address_type):
+        try:
+            self.updater.bot.send_chat_action(chat_id=chat_id, action=telegram.ChatAction.TYPING)
+            addr, err = self.LNwallet.getOnchainAddress(type=address_type)
+            if err is None:
+                qr = pyqrcode.create(addr)
+                temp_file_qr = os.path.join(self.root_dir, "temp", str(uuid.uuid4().hex) + ".png")
+                qr.png(temp_file_qr, scale=5)
+
+                self.updater.bot.send_photo(chat_id=chat_id, photo=open(temp_file_qr, "rb"))
+                self.updater.bot.send_message(chat_id=chat_id, text=addr)
+                if os.path.exists(temp_file_qr):
+                    os.remove(temp_file_qr)
+            else:
+                self.updater.bot.send_message(chat_id=chat_id, text="I couldn't get address, there was an error.")
+        except Exception as e:
+            logToFile("Exception getNewOnchainAddress: " + str(e))
+            self.updater.bot.send_message(chat_id=chat_id, text="I couldn't get address, there was an error. Check if all parameters are correct.")
 
     @restricted
     def callback_handle(self, bot, update):
@@ -180,6 +212,11 @@ class Bot:
             elif param[1] == "generate":
                 self.userdata.set_conv_state(username, None)
                 self.addInvoice(username, query.message.chat_id)
+        elif param[0] == "newaddress":
+            if param[1] == "compatibility":
+                self.getNewOnchainAddress(query.message.chat_id, "np2wkh")
+            elif param[1] == "nativesegwit":
+                self.getNewOnchainAddress(query.message.chat_id, "p2wkh")
         else:
             bot.send_message(chat_id=query.message.chat_id, text="callback parameters not valid")
 
@@ -188,8 +225,12 @@ class Bot:
         msg = update["message"]
         if self.userdata.get_chat_id(msg.from_user.username) is None:
             self.userdata.set_chat_id(msg.from_user.username, msg.chat_id)
-        bot.send_message(chat_id=msg.chat_id, text="TODO print commands")
-        # TODO print commands
+
+        text = "<b>Command List</b>\n"
+        for c in self.commands:
+            text += "/" + c
+        text += "\n\nTo pay invoice just send picture of a QR code or directly paste invoice text in chat."
+        bot.send_message(chat_id=msg.chat_id, text=text, parse_mode=telegram.ParseMode.HTML)
 
     @restricted
     def node_watch_mute(self, bot, update):
@@ -254,21 +295,25 @@ class Bot:
             self.userdata.set_conv_state(msg.from_user.username, "createInvoice")
             return
 
-        if cmd.lower()[:4] in ["lnbc", "lntb"] or cmd.lower()[:10] == "lightning:":  # LN invoice
+        if self.userdata.get_conv_state(username) == "payinvoice_otp":
+            if re.fullmatch("[0-9]{6}", cmd) is not None:
+                self.executePayment(msg.from_user.username, msg.chat_id, code_otp=cmd)
+            else:
+                bot.send_message(chat_id=msg.chat_id, text="This is not 2FA code. Please send 6-digit code.")
+            return
+
+        if cmd.lower()[:4] in ["lnbc", "lntb", "lnbcrt"] or cmd.lower()[:10] == "lightning:":  # LN invoice
             value, isValid = self.LNwallet.decodeInvoice(cmd, qr=False)  # isValid = True means it is valid LN invoice
             if isValid:
                 msgtext = self.LNwallet.formatDecodedInvoice(value)
                 self.userdata.set_wallet_payinvoice(msg.from_user.username, value)
                 if self.otp_enabled:
+                    self.userdata.set_conv_state(username, "payinvoice_otp")
                     bot.send_message(chat_id=msg.chat_id, text=msgtext + "\n<i>send me 2FA code for payment or</i> /cancel_payment", parse_mode=telegram.ParseMode.HTML)
                 else:
                     bot.send_message(chat_id=msg.chat_id, text=msgtext, parse_mode=telegram.ParseMode.HTML)
                     bot.send_message(chat_id=msg.chat_id, text="Do you want to pay this invoice?", reply_markup=self.confirm_menu())
                 return
-
-        if re.fullmatch("[0-9]{6}", cmd) is not None:
-            self.executePayment(msg.from_user.username, msg.chat_id, code_otp=cmd)
-            return
 
         if "ADD WHITELIST" in cmd.upper():
             params = cmd.split(' ')
@@ -316,6 +361,7 @@ class Bot:
             msgtext = self.LNwallet.formatDecodedInvoice(value)
             self.userdata.set_wallet_payinvoice(msg.from_user.username, value)
             if self.otp_enabled:
+                self.userdata.set_conv_state(msg.from_user.username, "payinvoice_otp")
                 bot.send_message(chat_id=msg.chat_id, text=msgtext + "\n<i>send me 2FA code for payment or</i> /cancel_payment", parse_mode=telegram.ParseMode.HTML)
             else:
                 bot.send_message(chat_id=msg.chat_id, text=msgtext, parse_mode=telegram.ParseMode.HTML)
@@ -333,6 +379,7 @@ class Bot:
             username = update.effective_user.username
             chat_id = update.callback_query.message.chat_id
 
+        self.userdata.set_conv_state(username, None)
         invoice_data = self.userdata.get_wallet_payinvoice(username)
         if invoice_data is not None:
             amt = invoice_data["decoded"]["num_satoshis"]
@@ -371,31 +418,7 @@ class Bot:
     @restricted
     def walletOnchainAddress(self, bot, update):
         msg = update["message"]
-
-        bot.send_chat_action(chat_id=msg.chat_id, action=telegram.ChatAction.TYPING)
-        try:
-            params = msg.text.split(" ")
-            if len(params) == 2 and params[1].lower() in ["compatibility", "np2wkh"]:
-                type = "np2wkh"
-            else:
-                type = "p2wkh"
-
-            addr, err = self.LNwallet.getOnchainAddress(type=type)
-            if err is None:
-                bot.send_chat_action(chat_id=msg.chat_id, action=telegram.ChatAction.TYPING)
-                qr = pyqrcode.create(addr)
-                temp_file_qr = os.path.join(self.root_dir, "temp", str(uuid.uuid4().hex) + ".png")
-                qr.png(temp_file_qr, scale=5)
-
-                bot.send_photo(chat_id=msg.chat_id, photo=open(temp_file_qr, "rb"))
-                bot.send_message(chat_id=msg.chat_id, text=addr)
-                if os.path.exists(temp_file_qr):
-                    os.remove(temp_file_qr)
-            else:
-                bot.send_message(chat_id=msg.chat_id, text="I couldn't get address, there was an error.")
-        except Exception as e:
-            logToFile("Exception walletOnchainAddress: " + str(e))
-            bot.send_message(chat_id=msg.chat_id, text="I couldn't get address, there was an error. Check if all parameters are correct.")
+        bot.send_message(chat_id=msg.chat_id, text="Select address type.", reply_markup=self.new_address_menu())
 
     @restricted
     def walletBalance(self, bot, update):
@@ -409,5 +432,5 @@ class Bot:
             bot.send_message(chat_id=msg.chat_id, text="Error at acquiring balance report.")
 
 if __name__ == "__main__":
-    nodebot = Bot(otp=False)
+    nodebot = Bot(otp=True)
     nodebot.run()

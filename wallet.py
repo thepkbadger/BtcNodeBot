@@ -56,7 +56,7 @@ class Wallet:
                 text = input_data.strip()
 
             # remove uri "lightning:" from start of text
-            if text[:10] == "lightning:":
+            if text.lower()[:10] == "lightning:":
                 text = text[10:]
 
             decoded_data, error = self.node.decode_ln_invoice(pay_req=text)

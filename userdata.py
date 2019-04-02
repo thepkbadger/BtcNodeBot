@@ -23,9 +23,6 @@ class UserData:
             if user not in self.data:
                 self.data[user] = self.default_data
 
-        for user, value in self.data.items():
-            self.set_conv_state(user, None)
-
         self.save_userdata()
 
     def save_userdata(self):
