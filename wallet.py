@@ -98,6 +98,8 @@ class Wallet:
                 else:
                     # as soon as we know payment was successful, clear invoice from user data
                     self.userdata.set_wallet_payinvoice(username, None)
+                    if self.userdata.get_conv_state(username) == "payinvoice_otp":
+                        self.userdata.set_conv_state(username, None)
 
                     total_amt = out_json["payment_route"]["total_amt"]
                     num_hops = len(out_json["payment_route"]["hops"])

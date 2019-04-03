@@ -131,8 +131,6 @@ class Bot:
         return InlineKeyboardMarkup(new_address_menu)
 
     def executePayment(self, username, chat_id, code_otp=""):
-        if self.userdata.get_conv_state(username) == "payinvoice_otp":
-            self.userdata.set_conv_state(username, None)
         invoice_data = self.userdata.get_wallet_payinvoice(username)
         if invoice_data is not None:
             raw_pay_req = invoice_data["raw_invoice"]
@@ -299,7 +297,7 @@ class Bot:
             if re.fullmatch("[0-9]{6}", cmd) is not None:
                 self.executePayment(msg.from_user.username, msg.chat_id, code_otp=cmd)
             else:
-                bot.send_message(chat_id=msg.chat_id, text="This is not 2FA code. Please send 6-digit code.")
+                bot.send_message(chat_id=msg.chat_id, text="This is not 2FA code. Please send 6-digit code or /cancel_payment")
             return
 
         if cmd.lower()[:4] in ["lnbc", "lntb", "lnbcrt"] or cmd.lower()[:10] == "lightning:":  # LN invoice
@@ -418,7 +416,7 @@ class Bot:
     @restricted
     def walletOnchainAddress(self, bot, update):
         msg = update["message"]
-        bot.send_message(chat_id=msg.chat_id, text="Select address type.", reply_markup=self.new_address_menu())
+        bot.send_message(chat_id=msg.chat_id, text="Select address type. If you are unsure select Compatibility.", reply_markup=self.new_address_menu())
 
     @restricted
     def walletBalance(self, bot, update):
