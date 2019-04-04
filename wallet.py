@@ -13,6 +13,13 @@ from time import sleep
 class Wallet:
 
     root_path = os.path.dirname(os.path.abspath(__file__))
+    explorerTxLink = {
+        "blockstream.info": "https://blockstream.info/tx/",
+        "oxt.me": "https://oxt.me/transaction/",
+        "blockcypher.com": "https://live.blockcypher.com/btc/tx/",
+        "blockchair.com": "https://blockchair.com/bitcoin/transaction/",
+        "blockchain.com": "https://www.blockchain.com/btc/tx/"
+    }
 
     def __init__(self, bot, userdata, node_conn="local", unit="sats", enable_otp=False):
         self.bot = bot
@@ -23,10 +30,14 @@ class Wallet:
         self.node = LocalNode()  # TODO arguments
         self.subscribe_notifications()
 
+    def get_available_explorers(self):
+        return self.explorerTxLink
+
     def subscribe_notifications(self):
         subscriptions = [
             self.node.subscribe_node_watcher,
-            self.node.subscribe_invoices
+            self.node.subscribe_invoices,
+            self.node.subscribe_transactions
         ]
         for subscription in subscriptions:
             t = threading.Thread(target=subscription, args=[self.bot, self.userdata])

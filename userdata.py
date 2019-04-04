@@ -7,7 +7,12 @@ class UserData:
     root_dir = os.path.dirname(os.path.abspath(__file__))
     data = {}
     default_data = {
-        "wallet": {"invoice": None, "node_watch_mute": False, "add_invoice_data": {"amount": 0, "expiry": 3600, "description": ""}},
+        "wallet": {
+            "invoice": None,
+            "node_watch_mute": False,
+            "default_explorer_tx": "https://blockstream.info/tx/",
+            "add_invoice_data": {"amount": 0, "expiry": 3600, "description": ""}
+        },
         "chat_id": None,
         "conversation_state": None
     }
@@ -78,3 +83,10 @@ class UserData:
 
     def get_conv_state(self, username):
         return self.data[username]["conversation_state"]
+
+    def set_default_explorer(self, username, explorer_link):
+        self.data[username]["wallet"]["default_explorer_tx"] = explorer_link
+        self.save_userdata()
+
+    def get_default_explorer(self, username):
+        return self.data[username]["wallet"]["default_explorer_tx"]

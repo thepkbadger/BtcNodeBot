@@ -29,6 +29,8 @@ class LocalNode:
 
         self.nodeOnline = False
         self.check_node_online()
+        self.sub_sleep_retry = 60
+        self.sub_sleep_offline = 30
 
     def init_ln_connection(self):
         os.environ["GRPC_SSL_CIPHER_SUITES"] = 'HIGH+ECDSA'
@@ -221,12 +223,10 @@ class LocalNode:
             return None, text
 
     def subscribe_invoices(self, bot, userdata):
-        sleep_retry = 65
-        sleep_offline = 20
 
         while True:
             if not self.nodeOnline:
-                sleep(sleep_offline)  # if we know node is offline, sleep and retry
+                sleep(self.sub_sleep_offline)  # if we know node is offline, sleep and retry
                 continue
 
             try:
@@ -247,16 +247,14 @@ class LocalNode:
                                 bot.send_message(chat_id=chat_id, text=text, parse_mode=telegram.ParseMode.HTML)
 
             except Exception as e:
-                print("LiveFeed LocalNode subscribe invoices: connection lost, will retry after " + str(sleep_retry) + " seconds")
-                sleep(sleep_retry)
+                print("LiveFeed LocalNode subscribe invoices: connection lost, will retry after " + str(self.sub_sleep_retry) + " seconds")
+                sleep(self.sub_sleep_retry)
 
     def subscribe_channel_events(self, bot, userdata):
-        sleep_retry = 65
-        sleep_offline = 20
 
         while True:
             if not self.nodeOnline:
-                sleep(sleep_offline)  # if we know node is offline, sleep and retry
+                sleep(self.sub_sleep_offline)  # if we know node is offline, sleep and retry
                 continue
 
             try:
@@ -288,15 +286,69 @@ class LocalNode:
                         else:
                             text += info_data["node"]["alias"] + "\n"
                         text += "Capacity: " + "{:,}".format(int(channel_data["capacity"])).replace(',', '.') + " sats\n"
-                        text += "txid: <a href='https://blockstream.info/tx/" + channel_data["closing_tx_hash"] + "'>"+channel_data["closing_tx_hash"][:15]+"...</a>\n"
+                        text += "Txid: <a href='{0}" + channel_data["closing_tx_hash"] + "'>"+channel_data["closing_tx_hash"][:6]+"..."+channel_data["closing_tx_hash"][-6:]+"</a>\n"
                         text += "Closure Type: " + str(channel_data["close_type"])
 
                     if text != "":
                         for username in userdata.get_usernames():
                             if userdata.get_chat_id(username) is not None:
                                 chat_id = userdata.get_chat_id(username)
+                                text = text.format(userdata.get_default_explorer(username))
                                 bot.send_message(chat_id=chat_id, text=text, parse_mode=telegram.ParseMode.HTML, disable_web_page_preview=True)
 
             except Exception as e:
-                print("LiveFeed LocalNode subscribe channel events: connection lost, will retry after " + str(sleep_retry) + " seconds")
-                sleep(sleep_retry)
+                print("LiveFeed LocalNode subscribe channel events: connection lost, will retry after " + str(self.sub_sleep_retry) + " seconds")
+                sleep(self.sub_sleep_retry)
+
+    def subscribe_transactions(self, bot, userdata):
+
+        while True:
+            if not self.nodeOnline:
+                sleep(self.sub_sleep_offline)  # if we know node is offline, sleep and retry
+                continue
+
+            try:
+                cache_tx = {}
+                request = ln.GetTransactionsRequest()
+                for response in self.stub.SubscribeTransactions(request):
+                    json_out = MessageToDict(response, including_default_value_fields=True)
+                    amount = int(json_out["amount"])
+                    if amount > 0:
+                        if json_out["num_confirmations"] == 0:
+                            text = "<b>Unconfirmed incoming transaction</b>\n"
+                        elif json_out["num_confirmations"] >= 1 and json_out["tx_hash"] not in cache_tx:
+                            cache_tx[json_out["tx_hash"]] = json_out["num_confirmations"]
+                            text = "<b>Received funds confirmed</b>\n"
+                        else:
+                            cache_tx.pop(json_out["tx_hash"], None)
+                            continue  # ignore duplicate
+                    elif amount < 0 and json_out["num_confirmations"] >= 1:
+                        if json_out["tx_hash"] in cache_tx:
+                            cache_tx.pop(json_out["tx_hash"], None)
+                            continue  # ignore duplicate
+                        else:
+                            cache_tx[json_out["tx_hash"]] = json_out["num_confirmations"]
+                        text = "<b>Sent transaction confirmed</b>\n"
+                        amount = abs(amount)
+                    else:
+                        continue
+
+                    text += "Amount: " + str(("%.8f" % (amount/100000000)).rstrip('0')) + " BTC\n"
+                    total_fees = int(json_out["total_fees"])
+                    if total_fees > 0:
+                        text += "Fees: " + str(("%.8f" % (total_fees/100000000)).rstrip('0')) + " BTC\n"
+                    conf = json_out["num_confirmations"]
+                    if conf > 0:
+                        text += "Confirmations: " + str(conf) + "\n"
+                    text += "Txid: <a href='{0}" + json_out["tx_hash"] + "'>" + json_out["tx_hash"][:12] + "..."+ json_out["tx_hash"][-12:] +"</a>\n"
+
+                    # send to each user that have chat_id in userdata
+                    for username in userdata.get_usernames():
+                        if userdata.get_chat_id(username) is not None:
+                            chat_id = userdata.get_chat_id(username)
+                            text = text.format(userdata.get_default_explorer(username))
+                            bot.send_message(chat_id=chat_id, text=text, parse_mode=telegram.ParseMode.HTML, disable_web_page_preview=True)
+
+            except Exception as e:
+                print("LiveFeed LocalNode subscribe transactions: connection lost, will retry after " + str(self.sub_sleep_retry) + " seconds")
+                sleep(self.sub_sleep_retry)
