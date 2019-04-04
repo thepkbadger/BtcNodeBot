@@ -204,6 +204,18 @@ class LocalNode:
             logToFile("Exception add_ln_invoice: " + text)
             return None, text
 
+    def get_channel_list(self):
+        try:
+            channels = self.stub.ListChannels(ln.ListChannelsRequest())
+            return MessageToDict(channels, including_default_value_fields=True), None
+        except Exception as e:
+            if hasattr(e, "_state") and hasattr(e._state, "details"):
+                text = str(e._state.details)
+            else:
+                text = str(e)
+            logToFile("Exception get_channel_list: " + text)
+            return None, text
+
     def get_balance_report(self):
         try:
             onchain_wallet = self.stub.WalletBalance(ln.WalletBalanceRequest())
@@ -286,7 +298,7 @@ class LocalNode:
                         else:
                             text += info_data["node"]["alias"] + "\n"
                         text += "Capacity: " + "{:,}".format(int(channel_data["capacity"])).replace(',', '.') + " sats\n"
-                        text += "Txid: <a href='{0}" + channel_data["closing_tx_hash"] + "'>"+channel_data["closing_tx_hash"][:6]+"..."+channel_data["closing_tx_hash"][-6:]+"</a>\n"
+                        text += "Txid: <a href='{0}" + channel_data["closing_tx_hash"] + "'>"+channel_data["closing_tx_hash"][:8]+"..."+channel_data["closing_tx_hash"][-8:]+"</a>\n"
                         text += "Closure Type: " + str(channel_data["close_type"])
 
                     if text != "":
@@ -340,7 +352,7 @@ class LocalNode:
                     conf = json_out["num_confirmations"]
                     if conf > 0:
                         text += "Confirmations: " + str(conf) + "\n"
-                    text += "Txid: <a href='{0}" + json_out["tx_hash"] + "'>" + json_out["tx_hash"][:12] + "..."+ json_out["tx_hash"][-12:] +"</a>\n"
+                    text += "Txid: <a href='{0}" + json_out["tx_hash"] + "'>" + json_out["tx_hash"][:8] + "..."+ json_out["tx_hash"][-8:] +"</a>\n"
 
                     # send to each user that have chat_id in userdata
                     for username in userdata.get_usernames():

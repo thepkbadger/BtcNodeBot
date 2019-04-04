@@ -4,7 +4,6 @@ import os
 from helper import logToFile
 from datetime import timedelta, datetime, timezone
 from node.local_node import LocalNode
-from node.remote_node import RemoteNode
 import pyotp
 import threading
 from time import sleep
@@ -138,6 +137,54 @@ class Wallet:
     def getInfo(self):
         return self.node.get_ln_info()
 
+    def getChannels(self, page=-1, per_page=-1):
+        channels, err = self.node.get_channel_list()
+        if err is not None:
+            return None, err
+        if page < 0 or per_page < 0:
+            return channels, None
+        try:
+            response = {"channels": [], "last": False}
+            num_of_channels = len(channels["channels"])
+            start = page * per_page
+            i = 0
+            while i < per_page:
+                if (start + i) >= num_of_channels:
+                    return None, "no more pages."
+                ch_data = channels["channels"][i+start]
+                info_data, error_info = self.node.get_ln_node_info(pub_key=ch_data["remote_pubkey"])
+                if info_data is None:
+                    alias = ch_data["remote_pubkey"][:12]
+                else:
+                    alias = info_data["node"]["alias"]
+                ch_data["alias"] = alias
+                response["channels"].append(ch_data)
+                i += 1
+                if (start + i) >= num_of_channels:
+                    response["last"] = True
+                    break
+
+            return response, None
+        except Exception as e:
+            text = str(e)
+            logToFile("Exception getChannels: " + text)
+            return None, text
+
+    def getChannelData(self, chan_id):
+        channels, err = self.node.get_channel_list()
+        if err is not None:
+            return None, err
+
+        for ch in channels["channels"]:
+            if ch["chan_id"] == chan_id:
+                info_data, error_info = self.node.get_ln_node_info(pub_key=ch["remote_pubkey"])
+                if info_data is None:
+                    ch["alias"] = ch["remote_pubkey"][:12]
+                else:
+                    ch["alias"] = info_data["node"]["alias"]
+                return ch, None
+        return None, "channel not found."
+
     def getOnchainAddress(self, type="p2wkh"):
         try:
             out_json, error = self.node.get_ln_onchain_address(addr_type=type)
@@ -162,12 +209,8 @@ class Wallet:
                     "channels": {
                         "effective_outbound_capacity": 0,
                         "effective_inbound_capacity": 0,
-                        "effective_max_outbound_payment": 0,
-                        "effective_max_inbound_payment": 0,
                         "outbound_capacity": 0,
                         "inbound_capacity": 0,
-                        "max_outbound_payment": 0,
-                        "max_inbound_payment": 0,
                         "inactive_aliases": []
                     }
                 }
@@ -176,20 +219,10 @@ class Wallet:
                     balance["channels"]["outbound_capacity"] += int(channel["local_balance"])
                     balance["channels"]["inbound_capacity"] += int(channel["remote_balance"])
 
-                    if int(channel["local_balance"]) > balance["channels"]["max_outbound_payment"]:
-                        balance["channels"]["max_outbound_payment"] = int(channel["local_balance"])
-                    if int(channel["remote_balance"]) > balance["channels"]["max_inbound_payment"]:
-                        balance["channels"]["max_inbound_payment"] = int(channel["remote_balance"])
-
                     if channel["active"]:
                         num_active += 1
                         balance["channels"]["effective_outbound_capacity"] += int(channel["local_balance"])
                         balance["channels"]["effective_inbound_capacity"] += int(channel["remote_balance"])
-
-                        if int(channel["local_balance"]) > balance["channels"]["effective_max_outbound_payment"]:
-                            balance["channels"]["effective_max_outbound_payment"] = int(channel["local_balance"])
-                        if int(channel["remote_balance"]) > balance["channels"]["effective_max_inbound_payment"]:
-                            balance["channels"]["effective_max_inbound_payment"] = int(channel["remote_balance"])
                     else:
                         info_data, error_info = self.node.get_ln_node_info(pub_key=channel["remote_pubkey"])
                         if info_data is None:
@@ -206,39 +239,72 @@ class Wallet:
             return None, text
 
     def formatBalanceOutput(self, data, lb_symbol="\n"):
-        text = "<b>Balance report</b>" + lb_symbol \
-            + "<i>🔗 On-chain:</i>" + lb_symbol \
+        args = [
+            data["onchain_total"], data["onchain_confirmed"], data["onchain_unconfirmed"],
+            data["channels"]["outbound_capacity"], data["channels"]["inbound_capacity"]
+        ]
+
+        text = "<i>🔗 On-chain:</i>" + lb_symbol \
             + "Total: {0}" + lb_symbol + "Confirmed: {1}" + lb_symbol + "Unconfirmed: {2}" + lb_symbol + lb_symbol \
             + "<i>⚡ Lightning channels: ("+str(data["num_active"])+"/"+str(data["num_channels"])+")</i>" + lb_symbol \
             + "<i>--Capacities</i>" + lb_symbol \
-            + "Effective outbound: {3}" + lb_symbol \
-            + "Effective inbound: {4}" + lb_symbol \
-            + "Outbound: {7}" + lb_symbol \
-            + "Inbound: {8}" + lb_symbol \
-            + "<i>--Max possible single payment size</i>" + lb_symbol \
-            + "Effective outbound: {5}" + lb_symbol \
-            + "Effective inbound: {6}" + lb_symbol \
-            + "Outbound: {9}" + lb_symbol \
-            + "Inbound: {10}" + lb_symbol \
-            + "<i>--Inactive channels</i>" + lb_symbol \
-            + ", ".join(data["channels"]["inactive_aliases"])
+            + "Local: {3}" + lb_symbol \
+            + "Remote: {4}"
+
+        if len(data["channels"]["inactive_aliases"]) > 0:
+            args.append(data["channels"]["effective_outbound_capacity"])
+            args.append(data["channels"]["effective_inbound_capacity"])
+            text += lb_symbol \
+                + "Effective Local: {5}" + lb_symbol \
+                + "Effective Remote: {6}" + lb_symbol \
+                + "<i>--Inactive channels</i>" + lb_symbol \
+                + ", ".join(data["channels"]["inactive_aliases"])
+
+        if self.unit == "BTC":
+            for idx, arg in enumerate(args):
+                args[idx] = "0" + " " + self.unit if arg == 0 else str("%.8f" % (arg / 100000000.0)).rstrip('0') + " " + self.unit
+        elif self.unit == "mBTC":
+            for idx, arg in enumerate(args):
+                args[idx] = "0" + " " + self.unit if arg == 0 else str("%.5f" % (arg / 100000.0)).rstrip('0') + " " + self.unit
+        else:
+            for idx, arg in enumerate(args):
+                args[idx] = "{:,}".format(int(arg)).replace(',', '.') + " " + self.unit
+
+        text = text.format(*args)
+        return text
+
+    def formatChannelOutput(self, data, explorerLink, lb_symbol="\n"):
+        active_text = "" if data["active"] else "  🔴 <i>offline</i>"
+        private_text = "private" if data["private"] else "public"
+        fund_txid = data["channel_point"][:data["channel_point"].find(':')]
+        funding_link = "<a href='" + explorerLink + fund_txid + "'>" + fund_txid[:8] + "..." + fund_txid[-8:] + "</a>"
+
+        text = "<b>" + data["alias"] + "</b>" + active_text + lb_symbol \
+            + data["remote_pubkey"] + lb_symbol \
+            + "Capacity: {0}" + lb_symbol \
+            + "Local Balance: {1}" + lb_symbol \
+            + "Remote Balance: {2}" + lb_symbol \
+            + "Time Lock: " + str(data["csv_delay"]) + lb_symbol \
+            + "Number of Updates: " + data["num_updates"] + lb_symbol \
+            + "Total Sent: {3}" + lb_symbol \
+            + "Total Received: {4}" + lb_symbol \
+            + "Type: " + private_text + lb_symbol \
+            + "Funding Tx: " + funding_link
 
         args = [
-            data["onchain_total"], data["onchain_confirmed"], data["onchain_unconfirmed"],
-            data["channels"]["effective_outbound_capacity"], data["channels"]["effective_inbound_capacity"],
-            data["channels"]["effective_max_outbound_payment"], data["channels"]["effective_max_inbound_payment"],
-            data["channels"]["outbound_capacity"], data["channels"]["inbound_capacity"],
-            data["channels"]["max_outbound_payment"], data["channels"]["max_inbound_payment"]
+            int(data["local_balance"])+int(data["remote_balance"]), int(data["local_balance"]), int(data["remote_balance"]), int(data["total_satoshis_sent"]),
+            int(data["total_satoshis_received"])
         ]
 
         if self.unit == "BTC":
             for idx, arg in enumerate(args):
-                args[idx] = str("%.8f" % arg/100000000.0)
+                args[idx] = "0" + " " + self.unit if arg == 0 else str("%.8f" % (arg / 100000000.0)).rstrip('0') + " " + self.unit
         elif self.unit == "mBTC":
             for idx, arg in enumerate(args):
-                args[idx] = str("%.5f" % arg / 100000.0)
+                args[idx] = "0" + " " + self.unit if arg == 0 else str("%.5f" % (arg / 100000.0)).rstrip('0') + " " + self.unit
+        else:
+            for idx, arg in enumerate(args):
+                args[idx] = "{:,}".format(int(arg)).replace(',', '.') + " " + self.unit
 
-        for idx, arg in enumerate(args):
-            args[idx] = "{:,}".format(int(arg)).replace(',', '.') + " " + self.unit
         text = text.format(*args)
         return text

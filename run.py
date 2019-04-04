@@ -75,6 +75,8 @@ class Bot:
         self.dispatcher.add_handler(walletReceiveHandler)
         nodeURIHandler = CommandHandler('node_uri', self.nodeURI)
         self.dispatcher.add_handler(nodeURIHandler)
+        walletListChannelsHandler = CommandHandler('wallet_channels', self.listChannels)
+        self.dispatcher.add_handler(walletListChannelsHandler)
 
         if self.otp_enabled is True:
             # generate new 2fA secret if doesn't exist
@@ -130,6 +132,28 @@ class Bot:
         new_address_menu = build_menu(button_list, n_cols=2)
         return InlineKeyboardMarkup(new_address_menu)
 
+    def channel_list_menu(self, page=0, per_page=5):
+        channels, err = self.LNwallet.getChannels(page, per_page)
+        if err is not None:
+            return None, err
+        button_list = []
+
+        for ch in channels["channels"]:
+            button_header = ch["alias"] + " Cap: " + "{:,}".format(int(ch["capacity"])).replace(',', '.')
+            button = InlineKeyboardButton(button_header, callback_data="ch_"+ch["chan_id"])
+            button_list.append(button)
+
+        if channels["last"] is False and page > 0:
+            button_list.append(InlineKeyboardButton("<<--", callback_data="ch_back"))
+            button_list.append(InlineKeyboardButton("-->>", callback_data="ch_forward"))
+        elif channels["last"] is True and page > 0:
+            button_list.append(InlineKeyboardButton("<<--", callback_data="ch_back"))
+        elif channels["last"] is False and page == 0:
+            button_list.append(InlineKeyboardButton("-->>", callback_data="ch_forward"))
+
+        channels_menu = build_menu(button_list, n_cols=1)
+        return InlineKeyboardMarkup(channels_menu), None
+
     def executePayment(self, username, chat_id, code_otp=""):
         invoice_data = self.userdata.get_wallet_payinvoice(username)
         if invoice_data is not None:
@@ -184,6 +208,15 @@ class Bot:
             logToFile("Exception getNewOnchainAddress: " + str(e))
             self.updater.bot.send_message(chat_id=chat_id, text="I couldn't get address, there was an error. Check if all parameters are correct.")
 
+    def getChannelsPage(self, username, chat_id, page):
+        self.updater.bot.send_chat_action(chat_id=chat_id, action=telegram.ChatAction.TYPING)
+        markup, err = self.channel_list_menu(page)
+        if err is None:
+            self.userdata.set_pagination(username, page)
+            self.updater.bot.send_message(chat_id=chat_id, text="<b>Opened LN channels "+str(page+1)+"</b>", reply_markup=markup, parse_mode=telegram.ParseMode.HTML)
+        else:
+            self.updater.bot.send_message(chat_id=chat_id, text="Cannot list opened channels, " + err)
+
     @restricted
     def callback_handle(self, bot, update):
         query = update.callback_query
@@ -215,6 +248,24 @@ class Bot:
                 self.getNewOnchainAddress(query.message.chat_id, "np2wkh")
             elif param[1] == "nativesegwit":
                 self.getNewOnchainAddress(query.message.chat_id, "p2wkh")
+        elif param[0] == "ch":
+            if param[1] == "forward":
+                page = self.userdata.get_pagination(username)
+                self.getChannelsPage(username, query.message.chat_id, page+1)
+            elif param[1] == "back":
+                page = self.userdata.get_pagination(username)
+                if page > 0:
+                    self.getChannelsPage(username, query.message.chat_id, page - 1)
+            else:
+                bot.send_chat_action(chat_id=query.message.chat_id, action=telegram.ChatAction.TYPING)
+                ch_data, err = self.LNwallet.getChannelData(chan_id=param[1])
+                if err is not None:
+                    bot.send_message(chat_id=query.message.chat_id, text="Cannot get channel data, " + err)
+                else:
+                    formated = self.LNwallet.formatChannelOutput(ch_data, self.userdata.get_default_explorer(username))
+                    bot.send_message(chat_id=query.message.chat_id, text=formated, parse_mode=telegram.ParseMode.HTML, disable_web_page_preview=True)
+                page = self.userdata.get_pagination(username)
+                self.getChannelsPage(username, query.message.chat_id, page)
         else:
             bot.send_message(chat_id=query.message.chat_id, text="callback parameters not valid")
 
@@ -428,6 +479,12 @@ class Bot:
             bot.send_message(chat_id=msg.chat_id, text=self.LNwallet.formatBalanceOutput(ret), parse_mode=telegram.ParseMode.HTML)
         else:
             bot.send_message(chat_id=msg.chat_id, text="Error at acquiring balance report.")
+
+    @restricted
+    def listChannels(self, bot, update):
+        msg = update["message"]
+        self.getChannelsPage(msg.from_user.username, msg.chat_id, 0)
+
 
 if __name__ == "__main__":
     nodebot = Bot(otp=True)

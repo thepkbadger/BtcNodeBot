@@ -4,3 +4,4 @@ node_uri - Get node URI
 wallet_addr - Get onchain bech32 or compatibility address
 wallet_balance - Get lightning node balance report
 wallet_receive - Create lightning invoice
+wallet_channels - List opened LN channels

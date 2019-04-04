@@ -14,7 +14,8 @@ class UserData:
             "add_invoice_data": {"amount": 0, "expiry": 3600, "description": ""}
         },
         "chat_id": None,
-        "conversation_state": None
+        "conversation_state": None,
+        "pagination_number": -1
     }
 
     def __init__(self, whitelist):
@@ -90,3 +91,10 @@ class UserData:
 
     def get_default_explorer(self, username):
         return self.data[username]["wallet"]["default_explorer_tx"]
+
+    def set_pagination(self, username, page):
+        self.data[username]["pagination_number"] = page
+        self.save_userdata()
+
+    def get_pagination(self, username):
+        return self.data[username]["pagination_number"]
