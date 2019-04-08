@@ -63,10 +63,8 @@ class Bot:
         self.dispatcher.add_handler(start_handler)
         btc_unit_handler = CommandHandler('bitcoin_unit', self.select_unit)
         self.dispatcher.add_handler(btc_unit_handler)
-        node_watch_mute_handler = CommandHandler('node_watch_mute', self.node_watch_mute)
-        self.dispatcher.add_handler(node_watch_mute_handler)
-        node_watch_unmute_handler = CommandHandler('node_watch_unmute', self.node_watch_unmute)
-        self.dispatcher.add_handler(node_watch_unmute_handler)
+        notif_handler = CommandHandler('notifications', self.notifications_toggle)
+        self.dispatcher.add_handler(notif_handler)
         walletCancelPayHandler = CommandHandler('cancel_payment', self.cancelPayment)
         self.dispatcher.add_handler(walletCancelPayHandler)
         walletOnchainAddressHandler = CommandHandler('onchain_addr', self.walletOnchainAddress)
@@ -113,6 +111,19 @@ class Bot:
         logToFile("telegram bot message listening stopped")
 
     # ------------------------------- Keyboard Menus
+    def notif_menu(self, username):
+        notif_state = self.userdata.get_notifications_state(username)
+        state1 = "  ✔" if notif_state["node"] else ""
+        state2 = "  ✔" if notif_state["transactions"] else ""
+        state3 = "  ✔" if notif_state["invoices"] else ""
+        button_list = [
+            InlineKeyboardButton("Node status (offline, not synced)"+state1, callback_data="notif_node"),
+            InlineKeyboardButton("On-Chain transactions"+state2, callback_data="notif_transactions"),
+            InlineKeyboardButton("Received LN payments"+state3, callback_data="notif_invoices")
+        ]
+        notif_menu = build_menu(button_list, n_cols=1)
+        return InlineKeyboardMarkup(notif_menu)
+
     def unit_menu(self):
         button_list = [
             InlineKeyboardButton("Bitcoin (BTC)", callback_data="unit_BTC"),
@@ -275,7 +286,10 @@ class Bot:
 
         if param[0] == "unit":
             self.userdata.set_selected_unit(username, param[1])
-            bot.send_message(chat_id=query.message.chat_id, text=param[1]+" selected.")
+            bot.send_message(chat_id=query.message.chat_id, text=param[1]+" selected")
+        elif param[0] == "notif":
+            self.userdata.toggle_notifications_state(username, param[1])
+            bot.send_message(chat_id=query.message.chat_id, text="Notifications settings updated.", reply_markup=self.notif_menu(username))
         elif param[0] == "payment":
             if param[1] == "yes":
                 self.executePayment(username, query.message.chat_id)
@@ -560,16 +574,9 @@ class Bot:
         bot.send_message(chat_id=msg.chat_id, text="Please select unit you want to use.", reply_markup=self.unit_menu())
 
     @restricted
-    def node_watch_mute(self, bot, update):
+    def notifications_toggle(self, bot, update):
         msg = update["message"]
-        self.userdata.set_node_watch_mute(msg.from_user.username, True)
-        bot.send_message(chat_id=msg.chat_id, text="Node status notifications disabled.")
-
-    @restricted
-    def node_watch_unmute(self, bot, update):
-        msg = update["message"]
-        self.userdata.set_node_watch_mute(msg.from_user.username, False)
-        bot.send_message(chat_id=msg.chat_id, text="Node status notifications enabled.")
+        bot.send_message(chat_id=msg.chat_id, text="Enable or disable notifications.", reply_markup=self.notif_menu(msg.from_user.username))
 
     @restricted
     def createInvoice(self, bot, update):

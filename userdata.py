@@ -9,7 +9,7 @@ class UserData:
     default_data = {
         "wallet": {
             "invoice": None,
-            "node_watch_mute": False,
+            "notifications": {"node": True, "transactions": True, "invoices": True},
             "default_explorer_tx": "https://blockstream.info/tx/",
             "selected_unit": "sats",
             "add_invoice_data": {"amount": 0, "expiry": 3600, "description": ""},
@@ -55,12 +55,12 @@ class UserData:
     def get_wallet_payinvoice(self, username):
         return self.data[username]["wallet"]["invoice"]
 
-    def set_node_watch_mute(self, username, value):
-        self.data[username]["wallet"]["node_watch_mute"] = value
+    def toggle_notifications_state(self, username, key):
+        self.data[username]["wallet"]["notifications"][key] = not self.data[username]["wallet"]["notifications"][key]
         self.save_userdata()
 
-    def get_node_watch_mute(self, username):
-        return self.data[username]["wallet"]["node_watch_mute"]
+    def get_notifications_state(self, username):
+        return self.data[username]["wallet"]["notifications"]
 
     def set_chat_id(self, username, chat_id):
         self.data[username]["chat_id"] = chat_id

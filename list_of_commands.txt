@@ -1,6 +1,5 @@
 bitcoin_unit - select Bitcoin unit
-node_watch_mute - mute node status notifications (node offline or not synced)
-node_watch_unmute - unmute node status notifications
+notifications - toggle notifications on/off
 node_uri - Get node URI (publickey@host)
 onchain_addr - Get onchain bech32 or compatibility address
 wallet_balance - Get wallet balance

@@ -113,7 +113,7 @@ class LocalNode:
 
                 if text != "":
                     for username in userdata.get_usernames():
-                        if userdata.get_chat_id(username) is not None and userdata.get_node_watch_mute(username) is False:
+                        if userdata.get_chat_id(username) is not None and userdata.get_notifications_state(username)["node"] is True:
                             chat_id = userdata.get_chat_id(username)
                             bot.send_message(chat_id=chat_id, text=text, parse_mode=telegram.ParseMode.HTML)
                 sleep(time_delta)
@@ -290,7 +290,7 @@ class LocalNode:
                         # send to each user that have chat_id in userdata
                         for username in userdata.get_usernames():
                             chat_id = userdata.get_chat_id(username)
-                            if chat_id is not None:
+                            if chat_id is not None and userdata.get_notifications_state(username)["invoices"] is True:
                                 unit = userdata.get_selected_unit(username)
                                 text = text.format(formatAmount(int(json_out["amt_paid_sat"]), unit))
                                 bot.send_message(chat_id=chat_id, text=text, parse_mode=telegram.ParseMode.HTML)
@@ -404,7 +404,7 @@ class LocalNode:
                     # send to each user that have chat_id in userdata
                     for username in userdata.get_usernames():
                         chat_id = userdata.get_chat_id(username)
-                        if chat_id is not None:
+                        if chat_id is not None and userdata.get_notifications_state(username)["transactions"] is True:
                             unit = userdata.get_selected_unit(username)
                             explorerLink = userdata.get_default_explorer(username)
                             text = text.format(formatAmount(amount, unit), formatAmount(total_fees, unit), explorerLink)
