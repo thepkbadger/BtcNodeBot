@@ -1,8 +1,9 @@
+bitcoin_unit - select Bitcoin unit
 node_watch_mute - mute node status notifications (node offline or not synced)
 node_watch_unmute - unmute node status notifications
-node_uri - Get node URI
-wallet_addr - Get onchain bech32 or compatibility address
+node_uri - Get node URI (publickey@host)
+onchain_addr - Get onchain bech32 or compatibility address
 wallet_balance - Get wallet balance
-wallet_receive - Create lightning invoice
-wallet_channels - List opened LN channels
+receive - Create lightning invoice
+list_channels - List opened LN channels
 open_channel - Open new LN channel

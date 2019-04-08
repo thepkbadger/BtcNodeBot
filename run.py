@@ -8,7 +8,7 @@ import json
 import pyqrcode, pyotp
 import threading
 import uuid
-from helper import logToFile, build_menu, amount_parse
+from helper import logToFile, build_menu, amount_parse, formatAmount
 from wallet import Wallet
 import re
 from userdata import UserData
@@ -61,21 +61,23 @@ class Bot:
 
         start_handler = CommandHandler('start', self.start)
         self.dispatcher.add_handler(start_handler)
+        btc_unit_handler = CommandHandler('bitcoin_unit', self.select_unit)
+        self.dispatcher.add_handler(btc_unit_handler)
         node_watch_mute_handler = CommandHandler('node_watch_mute', self.node_watch_mute)
         self.dispatcher.add_handler(node_watch_mute_handler)
         node_watch_unmute_handler = CommandHandler('node_watch_unmute', self.node_watch_unmute)
         self.dispatcher.add_handler(node_watch_unmute_handler)
         walletCancelPayHandler = CommandHandler('cancel_payment', self.cancelPayment)
         self.dispatcher.add_handler(walletCancelPayHandler)
-        walletOnchainAddressHandler = CommandHandler('wallet_addr', self.walletOnchainAddress)
+        walletOnchainAddressHandler = CommandHandler('onchain_addr', self.walletOnchainAddress)
         self.dispatcher.add_handler(walletOnchainAddressHandler)
         walletBalanceHandler = CommandHandler('wallet_balance', self.walletBalance)
         self.dispatcher.add_handler(walletBalanceHandler)
-        walletReceiveHandler = CommandHandler('wallet_receive', self.createInvoice)
+        walletReceiveHandler = CommandHandler('receive', self.createInvoice)
         self.dispatcher.add_handler(walletReceiveHandler)
         nodeURIHandler = CommandHandler('node_uri', self.nodeURI)
         self.dispatcher.add_handler(nodeURIHandler)
-        walletListChannelsHandler = CommandHandler('wallet_channels', self.listChannels)
+        walletListChannelsHandler = CommandHandler('list_channels', self.listChannels)
         self.dispatcher.add_handler(walletListChannelsHandler)
         walletOpenChannelHandler = CommandHandler('open_channel', self.openChannel)
         self.dispatcher.add_handler(walletOpenChannelHandler)
@@ -111,6 +113,16 @@ class Bot:
         logToFile("telegram bot message listening stopped")
 
     # ------------------------------- Keyboard Menus
+    def unit_menu(self):
+        button_list = [
+            InlineKeyboardButton("Bitcoin (BTC)", callback_data="unit_BTC"),
+            InlineKeyboardButton("Millibitcoin (mBTC)", callback_data="unit_mBTC"),
+            InlineKeyboardButton("Microbitcoin (bits)", callback_data="unit_bits"),
+            InlineKeyboardButton("Satoshis (sats)", callback_data="unit_sats")
+        ]
+        unit_menu = build_menu(button_list, n_cols=1)
+        return InlineKeyboardMarkup(unit_menu)
+
     def confirm_menu(self, type="payment"):
         button_list = [
             InlineKeyboardButton("Yes", callback_data=type + "_yes"),
@@ -151,14 +163,14 @@ class Bot:
         open_channel_menu = build_menu(button_list, n_cols=2)
         return InlineKeyboardMarkup(open_channel_menu)
 
-    def channel_list_menu(self, page=0, per_page=5):
+    def channel_list_menu(self, username, page=0, per_page=5):
         channels, err = self.LNwallet.getChannels(page, per_page)
         if err is not None:
             return None, err
         button_list = []
 
         for ch in channels["channels"]:
-            button_header = ch["alias"] + " Cap: " + "{:,}".format(int(ch["capacity"])).replace(',', '.')
+            button_header = ch["alias"] + " Cap: " + formatAmount(int(ch["capacity"]), self.userdata.get_selected_unit(username))
             button = InlineKeyboardButton(button_header, callback_data="ch_"+ch["chan_id"])
             button_list.append(button)
 
@@ -245,7 +257,7 @@ class Bot:
 
     def getChannelsPage(self, username, chat_id, page):
         self.updater.bot.send_chat_action(chat_id=chat_id, action=telegram.ChatAction.TYPING)
-        markup, err = self.channel_list_menu(page)
+        markup, err = self.channel_list_menu(username, page)
         if err is None:
             self.userdata.set_pagination(username, page)
             self.updater.bot.send_message(chat_id=chat_id, text="<b>Opened LN channels "+str(page+1)+"</b>", reply_markup=markup, parse_mode=telegram.ParseMode.HTML)
@@ -261,7 +273,10 @@ class Bot:
 
         bot.delete_message(chat_id=query.message.chat_id, message_id=query.message.message_id)
 
-        if param[0] == "payment":
+        if param[0] == "unit":
+            self.userdata.set_selected_unit(username, param[1])
+            bot.send_message(chat_id=query.message.chat_id, text=param[1]+" selected.")
+        elif param[0] == "payment":
             if param[1] == "yes":
                 self.executePayment(username, query.message.chat_id)
             elif param[1] == "no":
@@ -301,7 +316,7 @@ class Bot:
                 if err is not None:
                     bot.send_message(chat_id=query.message.chat_id, text="Cannot get channel data, " + err)
                 else:
-                    formated = self.LNwallet.formatChannelOutput(ch_data, self.userdata.get_default_explorer(username))
+                    formated = self.LNwallet.formatChannelOutput(ch_data, username)
                     bot.send_message(chat_id=query.message.chat_id, text=formated, parse_mode=telegram.ParseMode.HTML, disable_web_page_preview=True)
                 page = self.userdata.get_pagination(username)
                 self.getChannelsPage(username, query.message.chat_id, page)
@@ -336,7 +351,7 @@ class Bot:
                     self.userdata.delete_open_channel_data(username)
                     self.userdata.set_conv_state(username, None)
                 else:
-                    msgtext = self.LNwallet.formatChannelOpenOutput(self.userdata.get_open_channel_data(username))
+                    msgtext = self.LNwallet.formatChannelOpenOutput(self.userdata.get_open_channel_data(username), username)
                     if self.otp_enabled:
                         self.userdata.set_conv_state(username, "openChannel_otp")
                         bot.send_message(chat_id=query.message.chat_id, text=msgtext + "\n\n<i>send me 2FA code to open or</i> /cancel_opening_channel", parse_mode=telegram.ParseMode.HTML)
@@ -462,7 +477,7 @@ class Bot:
         if cmd.lower()[:4] in ["lnbc", "lntb", "lnbcrt"] or cmd.lower()[:10] == "lightning:":  # LN invoice
             value, isValid = self.LNwallet.decodeInvoice(cmd, qr=False)  # isValid = True means it is valid LN invoice
             if isValid:
-                msgtext = self.LNwallet.formatDecodedInvoice(value)
+                msgtext = self.LNwallet.formatDecodedInvoice(value, username)
                 self.userdata.set_wallet_payinvoice(msg.from_user.username, value)
                 if self.otp_enabled:
                     self.userdata.set_conv_state(username, "payinvoice_otp")
@@ -515,7 +530,7 @@ class Bot:
         if os.path.exists(temp_path_local):
             os.remove(temp_path_local)
         if isValid:
-            msgtext = self.LNwallet.formatDecodedInvoice(value)
+            msgtext = self.LNwallet.formatDecodedInvoice(value, msg.from_user.username)
             self.userdata.set_wallet_payinvoice(msg.from_user.username, value)
             if self.otp_enabled:
                 self.userdata.set_conv_state(msg.from_user.username, "payinvoice_otp")
@@ -538,6 +553,11 @@ class Bot:
             text += "/" + c
         text += "\n\nTo pay invoice just send picture of a QR code or directly paste invoice text in chat."
         bot.send_message(chat_id=msg.chat_id, text=text, parse_mode=telegram.ParseMode.HTML)
+
+    @restricted
+    def select_unit(self, bot, update):
+        msg = update["message"]
+        bot.send_message(chat_id=msg.chat_id, text="Please select unit you want to use.", reply_markup=self.unit_menu())
 
     @restricted
     def node_watch_mute(self, bot, update):
@@ -575,7 +595,7 @@ class Bot:
         if invoice_data is not None:
             amt = invoice_data["decoded"]["num_satoshis"]
             self.userdata.set_wallet_payinvoice(username, None)
-            bot.send_message(chat_id=chat_id, text="Payment of " + str(amt) + " sats cancelled.")
+            bot.send_message(chat_id=chat_id, text="Payment of " + formatAmount(int(amt), self.userdata.get_selected_unit(username)) + " cancelled.")
         else:
             bot.send_message(chat_id=chat_id, text="You don't have any invoice to cancel.")
 
@@ -632,7 +652,7 @@ class Bot:
         bot.send_chat_action(chat_id=msg.chat_id, action=telegram.ChatAction.TYPING)
         ret, err = self.LNwallet.getBalance()
         if err is None:
-            bot.send_message(chat_id=msg.chat_id, text=self.LNwallet.formatBalanceOutput(ret), parse_mode=telegram.ParseMode.HTML)
+            bot.send_message(chat_id=msg.chat_id, text=self.LNwallet.formatBalanceOutput(ret, msg.from_user.username), parse_mode=telegram.ParseMode.HTML)
         else:
             bot.send_message(chat_id=msg.chat_id, text="Error at acquiring balance report.")
 

@@ -1,7 +1,7 @@
 from pyzbar.pyzbar import decode
 from PIL import Image
 import os
-from helper import logToFile
+from helper import logToFile, formatAmount
 from datetime import timedelta, datetime, timezone
 from node.local_node import LocalNode
 import pyotp
@@ -22,12 +22,11 @@ class Wallet:
         "blockchain.com": "https://www.blockchain.com/btc/tx/"
     }
 
-    def __init__(self, bot, userdata, node_conn="local", unit="sats", enable_otp=False):
+    def __init__(self, bot, userdata, enable_otp=False):
         self.bot = bot
         self.enable_otp = enable_otp
         self.userdata = userdata
         self.threadList = []
-        self.unit = unit  # units: sats, mBTC, BTC
         self.node = LocalNode()  # TODO arguments
         self.subscribe_notifications()
 
@@ -82,17 +81,18 @@ class Wallet:
             logToFile("Exception at decoding invoice input data: "+str(e))
             return "there was error at decoding", False
 
-    def formatDecodedInvoice(self, data, lb_symbol="\n"):
+    def formatDecodedInvoice(self, data, username, lb_symbol="\n"):
 
         d_time = datetime.fromtimestamp(int(data["decoded"]["timestamp"]), timezone.utc)
         expiry = int(data["decoded"]["expiry"])
         d_time_expiration = d_time + timedelta(seconds=expiry)
 
         to = data["destination_node"]["node"]["alias"] if data["destination_node"] else data["decoded"]["destination"]
+        unit = self.userdata.get_selected_unit(username)
         return "<b>Lightning invoice: </b>" + lb_symbol \
             + "To: " + to + lb_symbol \
-            + "Amount: " + data["decoded"]["num_satoshis"] + " sats" + lb_symbol \
-            + "Expiration: " + d_time_expiration.strftime('%d.%m.%Y %H:%M:%S %z') + lb_symbol \
+            + "Amount: " + formatAmount(int(data["decoded"]["num_satoshis"]), unit) + lb_symbol \
+            + "Expiration: " + d_time_expiration.strftime('%c %Z') + lb_symbol \
             + "Description: " + data["decoded"]["description"] + lb_symbol
 
     def payInvoice(self, pay_req, bot, chat_id, username, otp_code=""):
@@ -114,8 +114,9 @@ class Wallet:
                         total_fees = out_json["payment_route"]["total_fees_msat"]
                     else:
                         total_fees = 0
+                    unit = self.userdata.get_selected_unit(username)
                     msg_text = "<b>Invoice has been paid.</b>\n" \
-                               + "Total amount: " + "{:,}".format(int(total_amt)).replace(',', '.') + " sats\n" \
+                               + "Total amount: " + formatAmount(int(total_amt), unit) + "\n" \
                                + "Total fees: " + "{:,}".format(int(total_fees)).replace(',', '.') + " msats\n" \
                                + "hops: " + str(num_hops) + "\n"
 
@@ -271,10 +272,10 @@ class Wallet:
             logToFile("Exception at getBalance: "+text)
             return None, text
 
-    def formatBalanceOutput(self, data, lb_symbol="\n"):
+    def formatBalanceOutput(self, data, username, lb_symbol="\n"):
         args = [
-            data["onchain_total"], data["onchain_confirmed"], data["onchain_unconfirmed"],
-            data["channels"]["outbound_capacity"], data["channels"]["inbound_capacity"]
+            int(data["onchain_total"]), int(data["onchain_confirmed"]), int(data["onchain_unconfirmed"]),
+            int(data["channels"]["outbound_capacity"]), int(data["channels"]["inbound_capacity"])
         ]
 
         text = "<i>🔗 On-chain:</i>" + lb_symbol \
@@ -285,31 +286,26 @@ class Wallet:
             + "Remote: {4}"
 
         if len(data["channels"]["inactive_aliases"]) > 0:
-            args.append(data["channels"]["effective_outbound_capacity"])
-            args.append(data["channels"]["effective_inbound_capacity"])
+            args.append(int(data["channels"]["effective_outbound_capacity"]))
+            args.append(int(data["channels"]["effective_inbound_capacity"]))
             text += lb_symbol \
                 + "Effective Local: {5}" + lb_symbol \
                 + "Effective Remote: {6}" + lb_symbol \
                 + "<i>--Inactive channels</i>" + lb_symbol \
                 + ", ".join(data["channels"]["inactive_aliases"])
 
-        if self.unit == "BTC":
-            for idx, arg in enumerate(args):
-                args[idx] = "0" + " " + self.unit if arg == 0 else str("%.8f" % (arg / 100000000.0)).rstrip('0') + " " + self.unit
-        elif self.unit == "mBTC":
-            for idx, arg in enumerate(args):
-                args[idx] = "0" + " " + self.unit if arg == 0 else str("%.5f" % (arg / 100000.0)).rstrip('0') + " " + self.unit
-        else:
-            for idx, arg in enumerate(args):
-                args[idx] = "{:,}".format(int(arg)).replace(',', '.') + " " + self.unit
+        unit = self.userdata.get_selected_unit(username)
+        for idx, arg in enumerate(args):
+            args[idx] = formatAmount(arg, unit)
 
         text = text.format(*args)
         return text
 
-    def formatChannelOutput(self, data, explorerLink, lb_symbol="\n"):
+    def formatChannelOutput(self, data, username, lb_symbol="\n"):
         active_text = "" if data["active"] else "  🔴 <i>offline</i>"
         private_text = "private" if data["private"] else "public"
         fund_txid = data["channel_point"][:data["channel_point"].find(':')]
+        explorerLink = self.userdata.get_default_explorer(username)
         funding_link = "<a href='" + explorerLink + fund_txid + "'>" + fund_txid[:8] + "..." + fund_txid[-8:] + "</a>"
 
         text = "<b>" + data["alias"] + "</b>" + active_text + lb_symbol \
@@ -329,20 +325,14 @@ class Wallet:
             int(data["total_satoshis_received"])
         ]
 
-        if self.unit == "BTC":
-            for idx, arg in enumerate(args):
-                args[idx] = "0" + " " + self.unit if arg == 0 else str("%.8f" % (arg / 100000000.0)).rstrip('0') + " " + self.unit
-        elif self.unit == "mBTC":
-            for idx, arg in enumerate(args):
-                args[idx] = "0" + " " + self.unit if arg == 0 else str("%.5f" % (arg / 100000.0)).rstrip('0') + " " + self.unit
-        else:
-            for idx, arg in enumerate(args):
-                args[idx] = "{:,}".format(int(arg)).replace(',', '.') + " " + self.unit
+        unit = self.userdata.get_selected_unit(username)
+        for idx, arg in enumerate(args):
+            args[idx] = formatAmount(arg, unit)
 
         text = text.format(*args)
         return text
 
-    def formatChannelOpenOutput(self, data, lb_symbol="\n"):
+    def formatChannelOpenOutput(self, data, username, lb_symbol="\n"):
         target_conf = data["target_conf"] if data["target_conf"] > 0 else "/"
         fee = data["sat_per_byte"] if data["sat_per_byte"] > 0 else "/"
         csv_delay = data["remote_csv_delay"] if data["remote_csv_delay"] > 0 else "/"
@@ -359,16 +349,9 @@ class Wallet:
 
         args = [int(data["local_amount"])]
 
-        if self.unit == "BTC":
-            for idx, arg in enumerate(args):
-                args[idx] = "0" + " " + self.unit if arg == 0 else str("%.8f" % (arg / 100000000.0)).rstrip('0') + " " + self.unit
-        elif self.unit == "mBTC":
-            for idx, arg in enumerate(args):
-                args[idx] = "0" + " " + self.unit if arg == 0 else str("%.5f" % (arg / 100000.0)).rstrip('0') + " " + self.unit
-        else:
-            for idx, arg in enumerate(args):
-                args[idx] = "{:,}".format(int(arg)).replace(',', '.') + " " + self.unit
+        unit = self.userdata.get_selected_unit(username)
+        for idx, arg in enumerate(args):
+            args[idx] = formatAmount(arg, unit)
 
         text = text.format(*args)
         return text
-

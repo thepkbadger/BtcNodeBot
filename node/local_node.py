@@ -6,7 +6,7 @@ import os
 from os.path import join, expandvars, expanduser
 import codecs
 from sys import platform
-from helper import logToFile
+from helper import logToFile, formatAmount
 from time import sleep
 import telegram
 
@@ -284,14 +284,15 @@ class LocalNode:
                     # received payment
                     if "settled" in json_out and json_out["settled"] is True:
                         text = "<b>Received LN payment.</b>\n"
-                        if "amt_paid_sat" in json_out:
-                            text += "Amount: " + "{:,}".format(int(json_out["amt_paid_sat"])).replace(',', '.') + " sats\n"
+                        text += "Amount: {0}\n"
                         if "memo" in json_out and json_out["memo"] != "":
                             text += "Description: " + json_out["memo"]
                         # send to each user that have chat_id in userdata
                         for username in userdata.get_usernames():
-                            if userdata.get_chat_id(username) is not None:
-                                chat_id = userdata.get_chat_id(username)
+                            chat_id = userdata.get_chat_id(username)
+                            if chat_id is not None:
+                                unit = userdata.get_selected_unit(username)
+                                text = text.format(formatAmount(int(json_out["amt_paid_sat"]), unit))
                                 bot.send_message(chat_id=chat_id, text=text, parse_mode=telegram.ParseMode.HTML)
 
             except Exception as e:
@@ -318,12 +319,14 @@ class LocalNode:
                             text += channel_data["remote_pubkey"] + "\n"
                         else:
                             text += info_data["node"]["alias"] + "\n"
-                        text += "Capacity: " + "{:,}".format(int(channel_data["capacity"])).replace(',', '.') + " sats\n"
-                        text += "Local Balance: " + "{:,}".format(int(channel_data["local_balance"])).replace(',', '.') + " sats\n"
-                        text += "Remote Balance: " + "{:,}".format(int(channel_data["remote_balance"])).replace(',', '.') + " sats\n"
+                        text += "Capacity: {0}\n"
+                        text += "Local Balance: {1}\n"
+                        text += "Remote Balance: {2}\n"
                         text += "Time Lock: " + str(channel_data["csv_delay"]) + "\n"
                         private = "yes" if channel_data["private"] else "no"
                         text += "Private: " + private
+                        fund_txid = json_out["channel_point"][:json_out["channel_point"].find(':')]
+                        text += "Txid: <a href='{3}" + fund_txid + "'>" + fund_txid[:8] + "..." + fund_txid[-8:] + "</a>\n"
 
                     elif "type" in json_out and json_out["type"] == "CLOSED_CHANNEL":
                         channel_data = json_out["closed_channel"]
@@ -333,15 +336,22 @@ class LocalNode:
                             text += channel_data["remote_pubkey"] + "\n"
                         else:
                             text += info_data["node"]["alias"] + "\n"
-                        text += "Capacity: " + "{:,}".format(int(channel_data["capacity"])).replace(',', '.') + " sats\n"
-                        text += "Txid: <a href='{0}" + channel_data["closing_tx_hash"] + "'>"+channel_data["closing_tx_hash"][:8]+"..."+channel_data["closing_tx_hash"][-8:]+"</a>\n"
+                        text += "Capacity: {0}\n"
+                        text += "Txid: <a href='{3}" + channel_data["closing_tx_hash"] + "'>"+channel_data["closing_tx_hash"][:8]+"..."+channel_data["closing_tx_hash"][-8:]+"</a>\n"
                         text += "Closure Type: " + str(channel_data["close_type"])
 
                     if text != "":
                         for username in userdata.get_usernames():
-                            if userdata.get_chat_id(username) is not None:
-                                chat_id = userdata.get_chat_id(username)
-                                text = text.format(userdata.get_default_explorer(username))
+                            chat_id = userdata.get_chat_id(username)
+                            if chat_id is not None:
+                                unit = userdata.get_selected_unit(username)
+                                explorerLink = userdata.get_default_explorer(username)
+                                text = text.format(
+                                    formatAmount(int(channel_data["capacity"]), unit),
+                                    formatAmount(int(channel_data["local_balance"]), unit),
+                                    formatAmount(int(channel_data["remote_balance"]), unit),
+                                    explorerLink
+                                )
                                 bot.send_message(chat_id=chat_id, text=text, parse_mode=telegram.ParseMode.HTML, disable_web_page_preview=True)
 
             except Exception as e:
@@ -382,20 +392,22 @@ class LocalNode:
                     else:
                         continue
 
-                    text += "Amount: " + str(("%.8f" % (amount/100000000)).rstrip('0')) + " BTC\n"
+                    text += "Amount: {0}\n"
                     total_fees = int(json_out["total_fees"])
                     if total_fees > 0:
-                        text += "Fees: " + str(("%.8f" % (total_fees/100000000)).rstrip('0')) + " BTC\n"
+                        text += "Fees: {1}\n"
                     conf = json_out["num_confirmations"]
                     if conf > 0:
                         text += "Confirmations: " + str(conf) + "\n"
-                    text += "Txid: <a href='{0}" + json_out["tx_hash"] + "'>" + json_out["tx_hash"][:8] + "..."+ json_out["tx_hash"][-8:] +"</a>\n"
+                    text += "Txid: <a href='{2}" + json_out["tx_hash"] + "'>" + json_out["tx_hash"][:8] + "..."+ json_out["tx_hash"][-8:] +"</a>\n"
 
                     # send to each user that have chat_id in userdata
                     for username in userdata.get_usernames():
-                        if userdata.get_chat_id(username) is not None:
-                            chat_id = userdata.get_chat_id(username)
-                            text = text.format(userdata.get_default_explorer(username))
+                        chat_id = userdata.get_chat_id(username)
+                        if chat_id is not None:
+                            unit = userdata.get_selected_unit(username)
+                            explorerLink = userdata.get_default_explorer(username)
+                            text = text.format(formatAmount(amount, unit), formatAmount(total_fees, unit), explorerLink)
                             bot.send_message(chat_id=chat_id, text=text, parse_mode=telegram.ParseMode.HTML, disable_web_page_preview=True)
 
             except Exception as e:

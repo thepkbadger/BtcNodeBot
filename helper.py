@@ -18,6 +18,21 @@ def logToFile(msg):
         file.write(datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S") + " - " + str(msg) + "\n")
 
 
+def formatAmount(amount_sat, unit):
+    if unit == "BTC":
+        s = str("%.8f" % (amount_sat / 100000000.0)).rstrip('0')
+    elif unit == "mBTC":
+        s = str("%.5f" % (amount_sat / 100000.0)).rstrip('0')
+    elif unit == "bits":
+        s = str("%.2f" % (amount_sat / 100.0)).rstrip('0')
+    else:
+        s = "{:,}".format(int(amount_sat)).replace(',', '.')
+
+    if s[-1:] == "." or s[-1:] == ",":
+        s = s[:-1]
+    return s + " " + unit
+
+
 def build_menu(buttons, n_cols, header_buttons=None, footer_buttons=None):
     # build telegram menu buttons
     menu = [buttons[i:i + n_cols] for i in range(0, len(buttons), n_cols)]
