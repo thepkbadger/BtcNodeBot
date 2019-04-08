@@ -11,7 +11,8 @@ class UserData:
             "invoice": None,
             "node_watch_mute": False,
             "default_explorer_tx": "https://blockstream.info/tx/",
-            "add_invoice_data": {"amount": 0, "expiry": 3600, "description": ""}
+            "add_invoice_data": {"amount": 0, "expiry": 3600, "description": ""},
+            "open_channel_data": {"address": "", "local_amount": 0, "target_conf": -1, "sat_per_byte": -1, "private": False, "min_htlc_msat": 1000, "remote_csv_delay": -1}
         },
         "chat_id": None,
         "conversation_state": None,
@@ -98,3 +99,14 @@ class UserData:
 
     def get_pagination(self, username):
         return self.data[username]["pagination_number"]
+
+    def get_open_channel_data(self, username):
+        return self.data[username]["wallet"]["open_channel_data"]
+
+    def set_open_channel_data(self, username, key, value):
+        self.data[username]["wallet"]["open_channel_data"][key] = value
+        self.save_userdata()
+
+    def delete_open_channel_data(self, username):
+        self.data[username]["wallet"]["open_channel_data"] = {"address": "", "local_amount": 0, "target_conf": -1, "sat_per_byte": -1, "private": False, "min_htlc_msat": 1000, "remote_csv_delay": -1}
+        self.save_userdata()

@@ -216,6 +216,42 @@ class LocalNode:
             logToFile("Exception get_channel_list: " + text)
             return None, text
 
+    def connect_peer(self, pubkey, host):
+        try:
+            addr = ln.LightningAddress(pubkey=pubkey, host=host)
+            request = ln.ConnectPeerRequest(addr=addr)
+            response = self.stub.ConnectPeer(request)
+            return MessageToDict(response, including_default_value_fields=True), None
+        except Exception as e:
+            if hasattr(e, "_state") and hasattr(e._state, "details"):
+                text = str(e._state.details)
+            else:
+                text = str(e)
+            logToFile("Exception connect_peer: " + text)
+            return None, text
+
+    def open_channel(self, node_pubkey, local_funding_amount, private, min_htlc_msat, remote_csv_delay, sat_per_byte, target_conf):
+        try:
+            args = {"node_pubkey_string": node_pubkey, "local_funding_amount": local_funding_amount, "private": private, "min_htlc_msat": min_htlc_msat}
+            if sat_per_byte > 0:
+                args["sat_per_byte"] = sat_per_byte
+            elif target_conf > 0:
+                args["target_conf"] = target_conf
+
+            if remote_csv_delay > 0:
+                args["remote_csv_delay"] = remote_csv_delay
+
+            request = ln.OpenChannelRequest(**args)
+            response = self.stub.OpenChannelSync(request)
+            return MessageToDict(response, including_default_value_fields=True), None
+        except Exception as e:
+            if hasattr(e, "_state") and hasattr(e._state, "details"):
+                text = str(e._state.details)
+            else:
+                text = str(e)
+            logToFile("Exception open_channel: " + text)
+            return None, text
+
     def get_balance_report(self):
         try:
             onchain_wallet = self.stub.WalletBalance(ln.WalletBalanceRequest())
@@ -326,7 +362,8 @@ class LocalNode:
                     json_out = MessageToDict(response, including_default_value_fields=True)
                     amount = int(json_out["amount"])
                     if amount > 0:
-                        if json_out["num_confirmations"] == 0:
+                        if json_out["num_confirmations"] == 0 and json_out["tx_hash"] not in cache_tx:
+                            cache_tx[json_out["tx_hash"]] = json_out["num_confirmations"]
                             text = "<b>Unconfirmed incoming transaction</b>\n"
                         elif json_out["num_confirmations"] >= 1 and json_out["tx_hash"] not in cache_tx:
                             cache_tx[json_out["tx_hash"]] = json_out["num_confirmations"]

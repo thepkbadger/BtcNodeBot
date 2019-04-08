@@ -7,6 +7,8 @@ from node.local_node import LocalNode
 import pyotp
 import threading
 from time import sleep
+import telegram
+from base64 import b64decode
 
 
 class Wallet:
@@ -94,8 +96,8 @@ class Wallet:
             + "Description: " + data["decoded"]["description"] + lb_symbol
 
     def payInvoice(self, pay_req, bot, chat_id, username, otp_code=""):
+        sending_msg = bot.send_message(chat_id=chat_id, text="Sending payment...")
         try:
-            sending_msg = bot.send_message(chat_id=chat_id, text="Sending payment...")
             if self.check_otp(otp_code) is False:
                 bot.edit_message_text(chat_id=chat_id, message_id=sending_msg.message_id, text="I couldn't pay invoice, 2FA code not valid.")
                 return
@@ -106,11 +108,6 @@ class Wallet:
                     bot.edit_message_text(chat_id=chat_id, message_id=sending_msg.message_id, text="I couldn't pay invoice, " + str(out_json["payment_error"]))
                     return
                 else:
-                    # as soon as we know payment was successful, clear invoice from user data
-                    self.userdata.set_wallet_payinvoice(username, None)
-                    if self.userdata.get_conv_state(username) == "payinvoice_otp":
-                        self.userdata.set_conv_state(username, None)
-
                     total_amt = out_json["payment_route"]["total_amt"]
                     num_hops = len(out_json["payment_route"]["hops"])
                     if "total_fees_msat" in out_json["payment_route"]:
@@ -121,7 +118,7 @@ class Wallet:
                                + "Total amount: " + "{:,}".format(int(total_amt)).replace(',', '.') + " sats\n" \
                                + "Total fees: " + "{:,}".format(int(total_fees)).replace(',', '.') + " msats\n" \
                                + "hops: " + str(num_hops) + "\n"
-                    import telegram
+
                     bot.edit_message_text(chat_id=chat_id, message_id=sending_msg.message_id, text=msg_text, parse_mode=telegram.ParseMode.HTML)
                     return
 
@@ -143,6 +140,8 @@ class Wallet:
             return None, err
         if page < 0 or per_page < 0:
             return channels, None
+        if len(channels["channels"]) == 0:
+            return None, "no channels."
         try:
             response = {"channels": [], "last": False}
             num_of_channels = len(channels["channels"])
@@ -184,6 +183,40 @@ class Wallet:
                     ch["alias"] = info_data["node"]["alias"]
                 return ch, None
         return None, "channel not found."
+
+    def openChannel(self, bot, chat_id, username, addr, local_funding_amount, target_conf=-1, sat_per_byte=-1, private=False, min_htlc_msat=1000, remote_csv_delay=-1, otp_code=""):
+        sending_msg = bot.send_message(chat_id=chat_id, text="Opening channel...")
+        try:
+            if self.check_otp(otp_code) is False:
+                bot.edit_message_text(chat_id=chat_id, message_id=sending_msg.message_id, text="I couldn't open channel, 2FA code not valid.")
+                return
+
+            uri = addr.split('@')
+            if len(uri) != 2:
+                bot.edit_message_text(chat_id=chat_id, message_id=sending_msg.message_id, text="I couldn't open channel, Node URI not valid.")
+                return
+            conn_response, error_conn = self.node.connect_peer(pubkey=uri[0], host=uri[1])
+            if error_conn is not None and "already" not in error_conn:
+                bot.edit_message_text(chat_id=chat_id, message_id=sending_msg.message_id, text="I couldn't open channel, " + error_conn)
+                return
+
+            open_response, error_open = self.node.open_channel(uri[0], local_funding_amount, private, min_htlc_msat, remote_csv_delay, sat_per_byte, target_conf)
+            if error_open is not None:
+                bot.edit_message_text(chat_id=chat_id, message_id=sending_msg.message_id, text="I couldn't open channel, " + error_open)
+                return
+
+            explorerLink = self.userdata.get_default_explorer(username)
+            fund_txid_bytes = b64decode(open_response["funding_txid_bytes"])[:: -1]  # decode base64 and reverse bytes
+            fund_txid = fund_txid_bytes.hex()  # bytes to hex string
+            msg_text = "<b>Channel successfully opened.</b>\n" \
+                    + "Please wait for funding tx confirmation.\n" \
+                    + "Funding Tx: <a href='" + explorerLink + fund_txid + "'>" + fund_txid[:8] + "..." + fund_txid[-8:] + "</a>"
+            bot.edit_message_text(chat_id=chat_id, message_id=sending_msg.message_id, text=msg_text, parse_mode=telegram.ParseMode.HTML, disable_web_page_preview=True)
+
+        except Exception as e:
+            text = str(e)
+            logToFile("Exception openChannel wallet: " + text)
+            bot.edit_message_text(chat_id=chat_id, message_id=sending_msg.message_id, text="I couldn't open channel, there was an error.")
 
     def getOnchainAddress(self, type="p2wkh"):
         try:
@@ -308,3 +341,34 @@ class Wallet:
 
         text = text.format(*args)
         return text
+
+    def formatChannelOpenOutput(self, data, lb_symbol="\n"):
+        target_conf = data["target_conf"] if data["target_conf"] > 0 else "/"
+        fee = data["sat_per_byte"] if data["sat_per_byte"] > 0 else "/"
+        csv_delay = data["remote_csv_delay"] if data["remote_csv_delay"] > 0 else "/"
+        private = "yes" if data["private"] else "no"
+
+        text = "<b>New channel</b>" + lb_symbol \
+            + data["address"] + lb_symbol \
+            + "Amount: {0}" + lb_symbol \
+            + "Min HTLC: " + str(data["min_htlc_msat"]) + " msats" + lb_symbol \
+            + "Time Lock: " + str(csv_delay) + lb_symbol \
+            + "Target Conf: " + str(target_conf) + lb_symbol \
+            + "Fees(sat/byte): " + str(fee) + lb_symbol \
+            + "Private: " + private
+
+        args = [int(data["local_amount"])]
+
+        if self.unit == "BTC":
+            for idx, arg in enumerate(args):
+                args[idx] = "0" + " " + self.unit if arg == 0 else str("%.8f" % (arg / 100000000.0)).rstrip('0') + " " + self.unit
+        elif self.unit == "mBTC":
+            for idx, arg in enumerate(args):
+                args[idx] = "0" + " " + self.unit if arg == 0 else str("%.5f" % (arg / 100000.0)).rstrip('0') + " " + self.unit
+        else:
+            for idx, arg in enumerate(args):
+                args[idx] = "{:,}".format(int(arg)).replace(',', '.') + " " + self.unit
+
+        text = text.format(*args)
+        return text
+
