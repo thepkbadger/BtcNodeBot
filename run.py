@@ -8,9 +8,11 @@ import json
 import pyqrcode, pyotp
 import threading
 import uuid
-from helper import logToFile, build_menu, amount_parse, formatAmount
+from helper import logToFile, build_menu, amount_parse, formatAmount, parse_bip21
 from wallet import Wallet
 import re
+from pyzbar.pyzbar import decode
+from PIL import Image
 from userdata import UserData
 
 
@@ -351,7 +353,7 @@ class Bot:
                 bot.send_message(chat_id=query.message.chat_id, text="Write amount in sats or BTC. (e.g. 10000 or 0.0001)")
             elif param[1] == "addr":
                 self.userdata.set_conv_state(username, "onchainSend_address")
-                bot.send_message(chat_id=query.message.chat_id, text="Enter bitcoin address to send coins to.")
+                bot.send_message(chat_id=query.message.chat_id, text="Send picture of a QR code or enter bitcoin address.")
             elif param[1] == "fee":
                 self.userdata.set_conv_state(username, "onchainSend_fee")
                 bot.send_message(chat_id=query.message.chat_id, text="Enter fee in sat/byte.")
@@ -470,7 +472,7 @@ class Bot:
                         values_valid = False
 
                 if values_valid:
-                    respText = "Give me details about invoice or press generate."
+                    respText = "Success. Give me details about invoice or press generate."
                 else:
                     respText = "<b>Provided value is not valid.</b>"
 
@@ -524,7 +526,7 @@ class Bot:
                     self.userdata.set_open_channel_data(username, "remote_csv_delay", int(cmd))
 
                 if values_valid:
-                    respText = "Enter <i>Node URI</i> and <i>Amount</i>, everything else is optional."
+                    respText = "Success. Enter <i>Node URI</i> and <i>Amount</i>, everything else is optional."
                 else:
                     respText = "<b>Provided value is not valid.</b>"
                 bot.send_message(chat_id=msg.chat_id, text=respText, reply_markup=self.open_channel_menu(), parse_mode=telegram.ParseMode.HTML)
@@ -559,7 +561,7 @@ class Bot:
                         values_valid = False
 
                 if values_valid:
-                    respText = "Enter details about transaction."
+                    respText = "Success. Enter details about transaction."
                 else:
                     respText = "<b>Provided value is not valid.</b>"
                 bot.send_message(chat_id=msg.chat_id, text=respText, reply_markup=self.send_onchain_menu(), parse_mode=telegram.ParseMode.HTML)
@@ -637,12 +639,51 @@ class Bot:
     @restricted
     def image_handle(self, bot, update):
         msg = update["message"]
+        username = msg.from_user.username
+        conv_state = self.userdata.get_conv_state(username)
 
+        # download file
         newFile = bot.get_file(update.message.photo[-1].file_id)
         file_ext = newFile.file_path[newFile.file_path.rfind('.'):]
         temp_filename_local = str(uuid.uuid4().hex) + file_ext
         temp_path_local = os.path.join(self.root_dir, "temp", temp_filename_local)
         newFile.download(temp_path_local)
+
+        # --------- sending on-chain transaction QR code in image
+        try:
+            if conv_state == "onchainSend_address":
+                ret = decode(Image.open(temp_path_local))
+                if len(ret) > 0:
+                    text = ret[0].data.decode("utf-8")
+                    response = parse_bip21(uri=text)
+                    if response is not None:
+                        self.userdata.set_onchain_send_data(username, "address", response["address"])
+                        if "amount_sat" in response:
+                            self.userdata.set_onchain_send_data(username, "amount", response["amount_sat"])
+                            amt = formatAmount(int(response["amount_sat"]), self.userdata.get_selected_unit(username))
+                            bot.send_message(chat_id=msg.chat_id, text=response["address"] + "\nAmount: " + amt)
+                            respText = "<i>Address</i> and <i>Amount</i> have been set successfully."
+                        else:
+                            bot.send_message(chat_id=msg.chat_id, text=response["address"])
+                            respText = "<i>Address</i> has been set successfully."
+                    elif "req-" in text:
+                        respText = "<b>Bitcoin URI is invalid.</b>"
+                    else:
+                        self.userdata.set_onchain_send_data(username, "address", text)  # only address not bip21 uri
+                        bot.send_message(chat_id=msg.chat_id, text=text)
+                        respText = "<i>Address</i> has been set successfully."
+                else:
+                    respText = "<b>Cannot find and decode QR code.</b>"
+
+                bot.send_message(chat_id=msg.chat_id, text=respText, reply_markup=self.send_onchain_menu(), parse_mode=telegram.ParseMode.HTML)
+                self.userdata.set_conv_state(username, "onchainSend")
+                if os.path.exists(temp_path_local):
+                    os.remove(temp_path_local)
+                return
+        except Exception as e:
+            bot.send_message(chat_id=msg.chat_id, text="<b>Cannot find and decode QR code.</b>", reply_markup=self.send_onchain_menu(), parse_mode=telegram.ParseMode.HTML)
+            self.userdata.set_conv_state(username, "onchainSend")
+            return
 
         value, isValid = self.LNwallet.decodeInvoice(temp_filename_local)  # isValid = True means it is valid LN invoice
         if os.path.exists(temp_path_local):
