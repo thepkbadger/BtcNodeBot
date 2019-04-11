@@ -1,7 +1,8 @@
-bitcoin_unit - select Bitcoin unit
-notifications - toggle notifications on/off
+bitcoin_unit - Select Bitcoin unit
+notifications - Toggle notifications on/off
 node_uri - Get node URI (publickey@host)
-onchain_addr - Get onchain bech32 or compatibility address
+onchain_addr - Get on-chain bech32 or compatibility address
+onchain_send - Send on-chain transaction
 wallet_balance - Get wallet balance
 receive - Create lightning invoice
 list_channels - List opened LN channels

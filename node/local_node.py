@@ -178,6 +178,28 @@ class LocalNode:
             logToFile("Exception get_ln_onchain_address: " + text)
             return None, text
 
+    def send_coins(self, address, amount, sat_per_byte, target_conf, send_all=False):
+        try:
+            args = {"addr": address, "amount": amount}
+            if sat_per_byte > 0:
+                args["sat_per_byte"] = sat_per_byte
+            elif target_conf > 0:
+                args["target_conf"] = target_conf
+
+            if send_all:
+                args["send_all"] = True
+
+            request = ln.SendCoinsRequest(**args)
+            response = self.stub.SendCoins(request)
+            return MessageToDict(response, including_default_value_fields=True), None
+        except Exception as e:
+            if hasattr(e, "_state") and hasattr(e._state, "details"):
+                text = str(e._state.details)
+            else:
+                text = str(e)
+            logToFile("Exception send_coins: " + text)
+            return None, text
+
     def pay_ln_invoice(self, pay_req):
         try:
             request = ln.SendRequest(payment_request=pay_req)

@@ -230,6 +230,29 @@ class Wallet:
             logToFile("Exception getOnchainAddress: " + text)
             return None, text
 
+    def sendCoins(self, bot, chat_id, username, address, amount, sat_per_byte=-1, target_conf=-1, otp_code=""):
+        sending_msg = bot.send_message(chat_id=chat_id, text="Sending transaction...")
+        try:
+            if self.check_otp(otp_code) is False:
+                bot.edit_message_text(chat_id=chat_id, message_id=sending_msg.message_id, text="I couldn't send transaction, 2FA code not valid.")
+                return
+
+            response, error = self.node.send_coins(address, amount, sat_per_byte, target_conf)
+            if error is not None:
+                bot.edit_message_text(chat_id=chat_id, message_id=sending_msg.message_id, text="I couldn't send transaction, " + str(error))
+                return
+
+            explorerLink = self.userdata.get_default_explorer(username)
+            txid = response["txid"]
+            msg_text = "<b>Transaction broadcasted</b>\n" \
+                    + "Txid: <a href='" + explorerLink + txid + "'>" + txid[:8] + "..." + txid[-8:] + "</a>"
+            bot.edit_message_text(chat_id=chat_id, message_id=sending_msg.message_id, text=msg_text, parse_mode=telegram.ParseMode.HTML, disable_web_page_preview=True)
+
+        except Exception as e:
+            text = str(e)
+            logToFile("Exception sendCoins: " + text)
+            bot.edit_message_text(chat_id=chat_id, message_id=sending_msg.message_id, text="I couldn't send transaction, there was an error.")
+
     def getBalance(self):
         try:
             response, error = self.node.get_balance_report()
@@ -348,6 +371,24 @@ class Wallet:
             + "Private: " + private
 
         args = [int(data["local_amount"])]
+
+        unit = self.userdata.get_selected_unit(username)
+        for idx, arg in enumerate(args):
+            args[idx] = formatAmount(arg, unit)
+
+        text = text.format(*args)
+        return text
+
+    def formatOnchainTxOutput(self, data, username, lb_symbol="\n"):
+        target_conf = data["target_conf"] if data["target_conf"] > 0 else "/"
+        fee = data["sat_per_byte"] if data["sat_per_byte"] > 0 else "/"
+        text = "<b>Review transaction</b>" + lb_symbol \
+            + "To: " + data["address"] + lb_symbol \
+            + "Amount: {0}" + lb_symbol \
+            + "Target Conf: " + str(target_conf) + lb_symbol \
+            + "Fees(sat/byte): " + str(fee)
+
+        args = [data["amount"]]
 
         unit = self.userdata.get_selected_unit(username)
         for idx, arg in enumerate(args):

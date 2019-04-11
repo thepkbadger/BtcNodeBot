@@ -69,6 +69,10 @@ class Bot:
         self.dispatcher.add_handler(walletCancelPayHandler)
         walletOnchainAddressHandler = CommandHandler('onchain_addr', self.walletOnchainAddress)
         self.dispatcher.add_handler(walletOnchainAddressHandler)
+        walletOnchainSendHandler = CommandHandler('onchain_send', self.walletOnchainSend)
+        self.dispatcher.add_handler(walletOnchainSendHandler)
+        walletCancelOnchainTxHandler = CommandHandler('cancel_transaction', self.cancelOnchainTx)
+        self.dispatcher.add_handler(walletCancelOnchainTxHandler)
         walletBalanceHandler = CommandHandler('wallet_balance', self.walletBalance)
         self.dispatcher.add_handler(walletBalanceHandler)
         walletReceiveHandler = CommandHandler('receive', self.createInvoice)
@@ -160,6 +164,17 @@ class Bot:
         new_address_menu = build_menu(button_list, n_cols=2)
         return InlineKeyboardMarkup(new_address_menu)
 
+    def send_onchain_menu(self):
+        button_list = [
+            InlineKeyboardButton("Address", callback_data="onchsend_addr"),
+            InlineKeyboardButton("Amount", callback_data="onchsend_amt"),
+            InlineKeyboardButton("Fee", callback_data="onchsend_fee"),
+            InlineKeyboardButton("Target Conf", callback_data="onchsend_tconf"),
+            InlineKeyboardButton("Send", callback_data="onchsend_send")
+        ]
+        send_onchain_menu = build_menu(button_list, n_cols=2)
+        return InlineKeyboardMarkup(send_onchain_menu)
+
     def open_channel_menu(self):
         button_list = [
             InlineKeyboardButton("Node URI", callback_data="opench_addr"),
@@ -197,6 +212,18 @@ class Bot:
         return InlineKeyboardMarkup(channels_menu), None
 
     # -------------------------------
+    def executeOnchainTx(self, username, chat_id, code_otp=""):
+        data = self.userdata.get_onchain_send_data(username)
+        onchtxthread = threading.Thread(
+            target=self.LNwallet.sendCoins,
+            args=[self.updater.bot, chat_id, username, data["address"], data["amount"],
+                  data["sat_per_byte"], data["target_conf"], code_otp
+                  ]
+        )
+        onchtxthread.start()
+        self.userdata.delete_onchain_send_data(username)
+        self.userdata.set_conv_state(username, None)
+
     def executeOpeningChannel(self, username, chat_id, code_otp=""):
         data = self.userdata.get_open_channel_data(username)
         openchthread = threading.Thread(
@@ -287,9 +314,11 @@ class Bot:
         if param[0] == "unit":
             self.userdata.set_selected_unit(username, param[1])
             bot.send_message(chat_id=query.message.chat_id, text=param[1]+" selected")
+
         elif param[0] == "notif":
             self.userdata.toggle_notifications_state(username, param[1])
             bot.send_message(chat_id=query.message.chat_id, text="Notifications settings updated.", reply_markup=self.notif_menu(username))
+
         elif param[0] == "payment":
             if param[1] == "yes":
                 self.executePayment(username, query.message.chat_id)
@@ -315,6 +344,39 @@ class Bot:
                 self.getNewOnchainAddress(query.message.chat_id, "np2wkh")
             elif param[1] == "nativesegwit":
                 self.getNewOnchainAddress(query.message.chat_id, "p2wkh")
+
+        elif param[0] == "onchsend":
+            if param[1] == "amt":
+                self.userdata.set_conv_state(username, "onchainSend_amount")
+                bot.send_message(chat_id=query.message.chat_id, text="Write amount in sats or BTC. (e.g. 10000 or 0.0001)")
+            elif param[1] == "addr":
+                self.userdata.set_conv_state(username, "onchainSend_address")
+                bot.send_message(chat_id=query.message.chat_id, text="Enter bitcoin address to send coins to.")
+            elif param[1] == "fee":
+                self.userdata.set_conv_state(username, "onchainSend_fee")
+                bot.send_message(chat_id=query.message.chat_id, text="Enter fee in sat/byte.")
+            elif param[1] == "tconf":
+                self.userdata.set_conv_state(username, "onchainSend_tconf")
+                bot.send_message(chat_id=query.message.chat_id, text="Enter the target number of blocks that transaction should be confirmed by.")
+            elif param[1] == "send":
+                self.userdata.set_conv_state(username, "onchainSend_send")
+                data = self.userdata.get_onchain_send_data(username)
+                if data["address"] == "" or data["amount"] <= 0:
+                    self.updater.bot.send_message(chat_id=query.message.chat_id, text="Sending failed, Address and Amount are required.")
+                    self.userdata.delete_onchain_send_data(username)
+                    self.userdata.set_conv_state(username, None)
+                else:
+                    msgtext = self.LNwallet.formatOnchainTxOutput(self.userdata.get_onchain_send_data(username), username)
+                    if self.otp_enabled:
+                        self.userdata.set_conv_state(username, "onchainSend_otp")
+                        bot.send_message(chat_id=query.message.chat_id, text=msgtext + "\n\n<i>send me 2FA code or</i> /cancel_transaction", parse_mode=telegram.ParseMode.HTML)
+                    else:
+                        bot.send_message(chat_id=query.message.chat_id, text=msgtext, parse_mode=telegram.ParseMode.HTML)
+                        bot.send_message(chat_id=query.message.chat_id, text="Do you want to send this transaction?", reply_markup=self.confirm_menu(type="onchsend"))
+            elif param[1] == "yes":
+                self.executeOnchainTx(username, query.message.chat_id)
+            elif param[1] == "no":
+                self.cancelOnchainTx(bot, update)
 
         elif param[0] == "ch":
             if param[1] == "forward":
@@ -474,6 +536,41 @@ class Bot:
                 self.userdata.set_conv_state(msg.from_user.username, "openChannel")
                 return
 
+        # --------- sending on-chain transaction
+        if conv_state in ["onchainSend_amount", "onchainSend_address", "onchainSend_fee", "onchainSend_tconf"]:
+            try:
+                values_valid = True
+                if conv_state == "onchainSend_address":
+                    self.userdata.set_onchain_send_data(username, "address", str(cmd))
+                elif conv_state == "onchainSend_amount":
+                    value, values_valid = amount_parse(cmd)
+                    self.userdata.set_onchain_send_data(username, "amount", value)
+                elif conv_state == "onchainSend_fee":
+                    value = int(cmd)
+                    if value > 0:
+                        self.userdata.set_onchain_send_data(username, "sat_per_byte", value)
+                    else:
+                        values_valid = False
+                elif conv_state == "onchainSend_tconf":
+                    value = int(cmd)
+                    if value > 0:
+                        self.userdata.set_onchain_send_data(username, "target_conf", value)
+                    else:
+                        values_valid = False
+
+                if values_valid:
+                    respText = "Enter details about transaction."
+                else:
+                    respText = "<b>Provided value is not valid.</b>"
+                bot.send_message(chat_id=msg.chat_id, text=respText, reply_markup=self.send_onchain_menu(), parse_mode=telegram.ParseMode.HTML)
+                self.userdata.set_conv_state(msg.from_user.username, "onchainSend")
+                return
+
+            except Exception as e:
+                bot.send_message(chat_id=msg.chat_id, text="<b>Provided value is not valid.</b>", reply_markup=self.send_onchain_menu(), parse_mode=telegram.ParseMode.HTML)
+                self.userdata.set_conv_state(msg.from_user.username, "onchainSend")
+                return
+
         if conv_state == "payinvoice_otp":
             if re.fullmatch("[0-9]{6}", cmd) is not None:
                 self.executePayment(msg.from_user.username, msg.chat_id, code_otp=cmd)
@@ -486,6 +583,13 @@ class Bot:
                 self.executeOpeningChannel(msg.from_user.username, msg.chat_id, code_otp=cmd)
             else:
                 bot.send_message(chat_id= msg.chat_id, text="This is not 2FA code. Please send 6-digit code or /cancel_opening_channel")
+            return
+
+        if conv_state == "onchainSend_otp":
+            if re.fullmatch("[0-9]{6}", cmd) is not None:
+                self.executeOnchainTx(msg.from_user.username, msg.chat_id, code_otp=cmd)
+            else:
+                bot.send_message(chat_id=msg.chat_id, text="This is not 2FA code. Please send 6-digit code or /cancel_transaction")
             return
 
         if cmd.lower()[:4] in ["lnbc", "lntb", "lnbcrt"] or cmd.lower()[:10] == "lightning:":  # LN invoice
@@ -616,9 +720,33 @@ class Bot:
             username = update.effective_user.username
             chat_id = update.callback_query.message.chat_id
 
+        data = self.userdata.get_open_channel_data(username)
+        if data["address"] == "" or data["local_amount"] <= 0:
+            bot.send_message(chat_id=chat_id, text="No channel to cancel.")
+            return
+
         self.userdata.delete_open_channel_data(username)
         self.userdata.set_conv_state(username, None)
         bot.send_message(chat_id=chat_id, text="Opening new channel canceled.")
+
+    @restricted
+    def cancelOnchainTx(self, bot, update):
+        if update["message"] is not None:  # command execution
+            msg = update["message"]
+            username = msg.from_user.username
+            chat_id = msg.chat_id
+        else:  # call from callback handler
+            username = update.effective_user.username
+            chat_id = update.callback_query.message.chat_id
+
+        data = self.userdata.get_onchain_send_data(username)
+        if data["address"] == "" or data["amount"] <= 0:
+            bot.send_message(chat_id=chat_id, text="No transaction to cancel.")
+            return
+
+        self.userdata.delete_onchain_send_data(username)
+        self.userdata.set_conv_state(username, None)
+        bot.send_message(chat_id=chat_id, text="Sending transaction canceled.")
 
     @restricted
     def nodeURI(self, bot, update):
@@ -653,6 +781,14 @@ class Bot:
         bot.send_message(chat_id=msg.chat_id, text="Select address type. If you are unsure select Compatibility.", reply_markup=self.new_address_menu())
 
     @restricted
+    def walletOnchainSend(self, bot, update):
+        msg = update["message"]
+        self.userdata.delete_onchain_send_data(msg.from_user.username)
+        self.userdata.set_conv_state(msg.from_user.username, "onchainSend")
+        bot.send_message(chat_id=msg.chat_id, text="Enter details about transaction.",
+                         reply_markup=self.send_onchain_menu(), parse_mode=telegram.ParseMode.HTML)
+
+    @restricted
     def walletBalance(self, bot, update):
         msg = update["message"]
 
@@ -678,5 +814,5 @@ class Bot:
         self.userdata.set_conv_state(msg.from_user.username, "openChannel")
 
 if __name__ == "__main__":
-    nodebot = Bot(otp=False)
+    nodebot = Bot(otp=True)
     nodebot.run()

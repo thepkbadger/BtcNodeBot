@@ -12,6 +12,7 @@ class UserData:
             "notifications": {"node": True, "transactions": True, "invoices": True},
             "default_explorer_tx": "https://blockstream.info/tx/",
             "selected_unit": "sats",
+            "onchain_send_data": {"amount": 0, "address": "", "sat_per_byte": -1, "target_conf": -1},
             "add_invoice_data": {"amount": 0, "expiry": 3600, "description": ""},
             "open_channel_data": {"address": "", "local_amount": 0, "target_conf": -1, "sat_per_byte": -1, "private": False, "min_htlc_msat": 1000, "remote_csv_delay": -1}
         },
@@ -117,4 +118,15 @@ class UserData:
 
     def set_selected_unit(self, username, unit):
         self.data[username]["wallet"]["selected_unit"] = unit
+        self.save_userdata()
+
+    def get_onchain_send_data(self, username):
+        return self.data[username]["wallet"]["onchain_send_data"]
+
+    def set_onchain_send_data(self, username, key, value):
+        self.data[username]["wallet"]["onchain_send_data"][key] = value
+        self.save_userdata()
+
+    def delete_onchain_send_data(self, username):
+        self.data[username]["wallet"]["onchain_send_data"] = {"amount": 0, "address": "", "sat_per_byte": -1, "target_conf": -1}
         self.save_userdata()
