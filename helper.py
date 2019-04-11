@@ -79,17 +79,36 @@ def parse_bip21(uri):
         return None
 
 
-def amount_parse(amount):
+def amount_parse(amount, unit):
     try:
-        if amount.count(".") == 1 or amount.count(",") == 1:
+        curr_unit = unit
+        allowed_units = ["BTC", "mBTC", "bits", "sats"]
+
+        for allowed_unit in allowed_units:
+            pos = amount.lower().find(allowed_unit.lower())
+            if pos > -1:
+                amount = amount[:pos].strip()
+                curr_unit = allowed_unit
+                break
+
+        if ((amount.count(".") == 1 and amount.count(",") == 0) or
+                (amount.count(".") == 0 and amount.count(",") == 0) or
+                (amount.count(".") == 0 and amount.count(",") == 1)) and amount != "":
+
             amount = amount.replace(',', '.')
-            value = int(float(amount) * 100000000)
-            if value > 0:
-                return value, True
-        elif amount.count(".") == 0 and amount.count(",") == 0:
-            value = int(amount)
-            if value > 0:
-                return value, True
+            amount_sat = 0
+            if curr_unit == "BTC":
+                amount_sat = int(float(amount) * 10**8)
+            elif curr_unit == "mBTC":
+                amount_sat = int(float(amount) * 10**5)
+            elif curr_unit == "bits":
+                amount_sat = int(float(amount) * 10**2)
+            elif curr_unit == "sats":
+                amount_sat = int(amount)
+
+            if amount_sat > 0:
+                return amount_sat, True
+
         return 0, False
     except Exception as e:
         return 0, False
