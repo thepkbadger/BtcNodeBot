@@ -402,7 +402,7 @@ class Bot:
         elif param[0] == "opench":
             if param[1] == "addr":
                 self.userdata.set_conv_state(username, "openChannel_addr")
-                bot.send_message(chat_id=query.message.chat_id, text="Enter node's publickey@host")
+                bot.send_message(chat_id=query.message.chat_id, text="Send picture of a QR code or enter node's publickey@host.")
             elif param[1] == "lamount":
                 self.userdata.set_conv_state(username, "openChannel_lamount")
                 bot.send_message(chat_id=query.message.chat_id, text="Write amount in supported units (BTC, mBTC, bits, sats). Examples: 1.5BTC 20,4bits 45 000 000sats 56000sats\nIf there is no unit present, selected unit is assumed.")
@@ -649,6 +649,23 @@ class Bot:
         temp_path_local = os.path.join(self.root_dir, "temp", temp_filename_local)
         newFile.download(temp_path_local)
 
+        # --------- opening channel QR code in image
+        if conv_state == "openChannel_addr":
+            ret = decode(Image.open(temp_path_local))
+            if len(ret) > 0:
+                text = ret[0].data.decode("utf-8")
+                self.userdata.set_open_channel_data(username, "address", str(text))
+                bot.send_message(chat_id=msg.chat_id, text=str(text))
+                respText = "Success. Enter <i>Node URI</i> and <i>Amount</i>, everything else is optional."
+            else:
+                respText = "<b>Cannot find and decode QR code.</b>"
+
+            if os.path.exists(temp_path_local):
+                os.remove(temp_path_local)
+            bot.send_message(chat_id=msg.chat_id, text=respText, reply_markup=self.open_channel_menu(), parse_mode=telegram.ParseMode.HTML)
+            self.userdata.set_conv_state(msg.from_user.username, "openChannel")
+            return
+
         # --------- sending on-chain transaction QR code in image
         try:
             if conv_state == "onchainSend_address":
@@ -685,6 +702,7 @@ class Bot:
             self.userdata.set_conv_state(username, "onchainSend")
             return
 
+        # --------- LN invoice QR code in image
         value, isValid = self.LNwallet.decodeInvoice(temp_filename_local)  # isValid = True means it is valid LN invoice
         if os.path.exists(temp_path_local):
             os.remove(temp_path_local)
