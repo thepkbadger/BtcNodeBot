@@ -330,7 +330,7 @@ class Bot:
         elif param[0] == "addinvoice":
             if param[1] == "amt":
                 self.userdata.set_conv_state(username, "createInvoice_amount")
-                bot.send_message(chat_id=query.message.chat_id, text="Write amount in supported units (BTC, mBTC, bits, sats).\nExamples: 1.5BTC, 1000sats\nIf there is no unit present, selected unit is assumed.")
+                bot.send_message(chat_id=query.message.chat_id, text="Write amount in supported units (BTC, mBTC, bits, sats). Examples: 1.5BTC 20,4bits 45 000 000sats 56000sats\nIf there is no unit present, selected unit is assumed.")
             elif param[1] == "desc":
                 self.userdata.set_conv_state(username, "createInvoice_description")
                 bot.send_message(chat_id=query.message.chat_id, text="Write description.")
@@ -350,7 +350,7 @@ class Bot:
         elif param[0] == "onchsend":
             if param[1] == "amt":
                 self.userdata.set_conv_state(username, "onchainSend_amount")
-                bot.send_message(chat_id=query.message.chat_id, text="Write amount in supported units (BTC, mBTC, bits, sats).\nExamples: 1.5BTC, 1000sats\nIf there is no unit present, selected unit is assumed.")
+                bot.send_message(chat_id=query.message.chat_id, text="Write amount in supported units (BTC, mBTC, bits, sats). Examples: 1.5BTC 20,4bits 45 000 000sats 56000sats\nIf there is no unit present, selected unit is assumed.")
             elif param[1] == "addr":
                 self.userdata.set_conv_state(username, "onchainSend_address")
                 bot.send_message(chat_id=query.message.chat_id, text="Send picture of a QR code or enter bitcoin address.")
@@ -405,7 +405,7 @@ class Bot:
                 bot.send_message(chat_id=query.message.chat_id, text="Enter node's publickey@host")
             elif param[1] == "lamount":
                 self.userdata.set_conv_state(username, "openChannel_lamount")
-                bot.send_message(chat_id=query.message.chat_id, text="Write amount in supported units (BTC, mBTC, bits, sats).\nExamples: 1.5BTC, 1000sats\nIf there is no unit present, selected unit is assumed.")
+                bot.send_message(chat_id=query.message.chat_id, text="Write amount in supported units (BTC, mBTC, bits, sats). Examples: 1.5BTC 20,4bits 45 000 000sats 56000sats\nIf there is no unit present, selected unit is assumed.")
             elif param[1] == "tconf":
                 self.userdata.set_conv_state(username, "openChannel_tconf")
                 bot.send_message(chat_id=query.message.chat_id, text="Enter the target number of blocks that the funding transaction should be confirmed by.")
@@ -855,5 +855,5 @@ class Bot:
         self.userdata.set_conv_state(msg.from_user.username, "openChannel")
 
 if __name__ == "__main__":
-    nodebot = Bot(otp=True)
+    nodebot = Bot(otp=False)
     nodebot.run()

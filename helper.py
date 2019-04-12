@@ -27,7 +27,7 @@ def formatAmount(amount_sat, unit):
     elif unit == "bits":
         s = str("%.2f" % (amount_sat / 100.0)).rstrip('0')
     else:
-        s = "{:,}".format(int(amount_sat)).replace(',', '.')
+        s = "{:,}".format(int(amount_sat))
 
     if s[-1:] == "." or s[-1:] == ",":
         s = s[:-1]
@@ -82,12 +82,12 @@ def parse_bip21(uri):
 def amount_parse(amount, unit):
     try:
         curr_unit = unit
-        allowed_units = ["BTC", "mBTC", "bits", "sats"]
+        allowed_units = ["mBTC", "BTC", "bits", "sats"]  # more specific string first, mBTC before BTC
 
         for allowed_unit in allowed_units:
             pos = amount.lower().find(allowed_unit.lower())
             if pos > -1:
-                amount = amount[:pos].strip()
+                amount = amount[:pos].replace(" ", "")  # remove all spaces
                 curr_unit = allowed_unit
                 break
 
