@@ -3,6 +3,78 @@ import os.path
 from urllib.parse import urlparse, parse_qs
 
 
+def parse_config(file):
+    config = {"bottoken": "", "botwhitelist": [], "bototp": False, "lnhost": "127.0.0.1", "lnport": 10009, "lnnet": "mainnet", "lndir": "", "lncertpath": "", "lnadminmacaroonpath": ""}
+
+    try:
+        with open(file, "r") as conf_file:
+            lines = conf_file.readlines()
+            for line in lines:
+                line = line.strip()
+                if line == "" or line[0] == "#":
+                    continue
+                param = line.split("=")
+                if len(param) < 2:
+                    continue
+                end_pos = param[1].find(" ")
+                if end_pos < 0:
+                    end_pos = len(param[1])
+                value = param[1][:end_pos]
+                if param[0] in ["bototp"] and (value == "1" or value.lower() == "true"):
+                    config[param[0]] = True
+                elif param[0] in ["bototp"] and (value == "0" or value.lower() == "false"):
+                    config[param[0]] = False
+                elif param[0] in ["lnport"]:
+                    config[param[0]] = int(value)
+                elif param[0] == "botwhitelist":
+                    usernames = value.split(",")
+                    for user in usernames:
+                        if user != "":
+                            config[param[0]].append(user.strip())
+                else:
+                    config[param[0]] = str(value)
+
+        return config
+    except Exception as e:
+        logToFile("Exception at reading config file: " + str(e))
+        return config
+
+
+def update_config_whitelist(file, new_usernames):
+    try:
+        with open(file, "r") as conf_file:
+            lines = conf_file.readlines()
+            for idx, line in enumerate(lines):
+                if line == "" or line[0] == "#":
+                    continue
+                if len(line) >= 12 and line[:12] == "botwhitelist":
+                    line = line.strip()
+                    param = line.split("=")
+                    if len(param) == 1:
+                        lines[idx] = param[0] + "=" + ",".join(new_usernames)
+                    elif len(param) > 1:
+                        end_pos = param[1].find(" ")
+                        rem = ""
+                        if end_pos > -1:
+                            rem = param[1][end_pos:]
+                        lines[idx] = param[0] + "=" + ",".join(new_usernames) + rem
+
+                    if len(param) > 2:
+                        for i in range(2, len(param)):
+                            lines[idx] += "=" + param[i]
+                    lines[idx] += "\n"
+
+        with open(file, "w") as conf_file:
+            conf_file.truncate()
+            for line in lines:
+                conf_file.write(line)
+
+        return True
+    except Exception as e:
+        logToFile("Exception at editing config file: " + str(e))
+        return False
+
+
 def try_parsing_date(text):
     for fmt in ('%b %d, %Y', '%d. %b %Y', '%d. %b. %Y', '%Y-%m-%d', '%Y%m%d', '%d-%b-%Y'):
         try:
@@ -15,7 +87,7 @@ root_dir = os.path.dirname(os.path.abspath(__file__))
 
 
 def logToFile(msg):
-    with open(root_dir + "/logs.txt", "a") as file:
+    with open(root_dir + "/nodebot.log", "a") as file:
         file.write(datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S") + " - " + str(msg) + "\n")
 
 

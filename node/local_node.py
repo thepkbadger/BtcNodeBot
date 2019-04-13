@@ -15,17 +15,18 @@ class LocalNode:
 
     root_path = os.path.dirname(os.path.abspath(__file__))
 
-    def __init__(self, ln_host="127.0.0.1", ln_port=10009, ln_dir="", net="mainnet", ln_cert_path="", ln_admin_macaroon_path=""):
+    def __init__(self, config):
         # init ln
-        self.ln_host = ln_host
-        self.ln_port = ln_port
-        self.net = net
-        self.ln_dir = ln_dir
-        self.ln_cert_path = ln_cert_path
-        self.ln_admin_macaroon_path = ln_admin_macaroon_path
+        self.ln_host = config["lnhost"]
+        self.ln_port = config["lnport"]
+        self.net = config["lnnet"]
+        self.ln_dir = config["lndir"]
+        self.ln_cert_path = config["lncertpath"]
+        self.ln_admin_macaroon_path = config["lnadminmacaroonpath"]
 
         channel = self.init_ln_connection()
-        self.stub = lnrpc.LightningStub(channel)
+        if channel is not None:
+            self.stub = lnrpc.LightningStub(channel)
 
         self.nodeOnline = False
         self.check_node_online()
@@ -33,41 +34,45 @@ class LocalNode:
         self.sub_sleep_offline = 30
 
     def init_ln_connection(self):
-        os.environ["GRPC_SSL_CIPHER_SUITES"] = 'HIGH+ECDSA'
+        try:
+            os.environ["GRPC_SSL_CIPHER_SUITES"] = 'HIGH+ECDSA'
 
-        if self.ln_cert_path != "" and self.ln_admin_macaroon_path != "":
-            lnd_cert_path = self.ln_cert_path
-            lnd_admin_macaroon_path = self.ln_admin_macaroon_path
-        else:
-            if self.ln_dir != "":
-                lnd_root_dir = self.ln_dir  # custom location
+            if self.ln_cert_path != "" and self.ln_admin_macaroon_path != "":
+                lnd_cert_path = self.ln_cert_path
+                lnd_admin_macaroon_path = self.ln_admin_macaroon_path
             else:
-                # default locations
-                if platform.startswith("win32") or platform.startswith("cygwin"):  # windows
-                    lnd_root_dir = join(expandvars("%LOCALAPPDATA%"), "Lnd")
-                elif platform.startswith("linux"):  # linux
-                    lnd_root_dir = join(expanduser("~"), ".lnd")
-                elif platform.startswith("darwin"):  # Mac OS X
-                    lnd_root_dir = join(expanduser("~"), "Library", "Application Support", "Lnd")
+                if self.ln_dir != "":
+                    lnd_root_dir = self.ln_dir  # custom location
                 else:
-                    lnd_root_dir = join(self.root_path, "..", "lnd")
+                    # default locations
+                    if platform.startswith("win32") or platform.startswith("cygwin"):  # windows
+                        lnd_root_dir = join(expandvars("%LOCALAPPDATA%"), "Lnd")
+                    elif platform.startswith("linux"):  # linux
+                        lnd_root_dir = join(expanduser("~"), ".lnd")
+                    elif platform.startswith("darwin"):  # Mac OS X
+                        lnd_root_dir = join(expanduser("~"), "Library", "Application Support", "Lnd")
+                    else:
+                        lnd_root_dir = join(self.root_path, "..", "lnd")
 
-            lnd_cert_path = join(lnd_root_dir, "tls.cert")
-            lnd_admin_macaroon_path = join(lnd_root_dir, "data", "chain", "bitcoin", self.net, "admin.macaroon")
+                lnd_cert_path = join(lnd_root_dir, "tls.cert")
+                lnd_admin_macaroon_path = join(lnd_root_dir, "data", "chain", "bitcoin", self.net, "admin.macaroon")
 
-        cert = open(lnd_cert_path, 'rb').read()
-        with open(lnd_admin_macaroon_path, 'rb') as f:
-            macaroon_bytes = f.read()
-            macaroon = codecs.encode(macaroon_bytes, 'hex')
+            cert = open(lnd_cert_path, 'rb').read()
+            with open(lnd_admin_macaroon_path, 'rb') as f:
+                macaroon_bytes = f.read()
+                macaroon = codecs.encode(macaroon_bytes, 'hex')
 
-        # build ssl credentials using the cert
-        cert_creds = grpc.ssl_channel_credentials(cert)
-        # build meta data credentials
-        auth_creds = grpc.metadata_call_credentials(lambda context, callback: callback([('macaroon', macaroon)], None))
-        # combine the cert credentials and the macaroon auth credentials
-        combined_creds = grpc.composite_channel_credentials(cert_creds, auth_creds)
+            # build ssl credentials using the cert
+            cert_creds = grpc.ssl_channel_credentials(cert)
+            # build meta data credentials
+            auth_creds = grpc.metadata_call_credentials(lambda context, callback: callback([('macaroon', macaroon)], None))
+            # combine the cert credentials and the macaroon auth credentials
+            combined_creds = grpc.composite_channel_credentials(cert_creds, auth_creds)
 
-        return grpc.secure_channel(str(self.ln_host) + ":" + str(self.ln_port), combined_creds)
+            return grpc.secure_channel(str(self.ln_host) + ":" + str(self.ln_port), combined_creds)
+        except Exception as e:
+            logToFile("Exception init_ln_connection: " + str(e))
+            return None
 
     def check_node_online(self, wait_on_not_synced=60):
         try:

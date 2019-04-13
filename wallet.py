@@ -22,12 +22,12 @@ class Wallet:
         "blockchain.com": "https://www.blockchain.com/btc/tx/"
     }
 
-    def __init__(self, bot, userdata, enable_otp=False):
+    def __init__(self, bot, userdata, config):
         self.bot = bot
-        self.enable_otp = enable_otp
+        self.enable_otp = config["bototp"]
         self.userdata = userdata
         self.threadList = []
-        self.node = LocalNode()  # TODO arguments
+        self.node = LocalNode(config=config)
         self.subscribe_notifications()
 
     def get_available_explorers(self):

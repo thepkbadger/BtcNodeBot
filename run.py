@@ -8,7 +8,7 @@ import json
 import pyqrcode, pyotp
 import threading
 import uuid
-from helper import logToFile, build_menu, amount_parse, formatAmount, parse_bip21
+from helper import logToFile, build_menu, amount_parse, formatAmount, parse_bip21, parse_config, update_config_whitelist
 from wallet import Wallet
 import re
 from pyzbar.pyzbar import decode
@@ -38,13 +38,19 @@ def restricted(func):
 class Bot:
 
     root_dir = os.path.dirname(os.path.abspath(__file__))
+    config_file_path = os.path.join(root_dir, "private", "nodebot.conf")
     access_whitelist_user = []
 
-    def __init__(self, otp=False):
-        botfile = open(os.path.join(self.root_dir, "private", "telegram_bot_token.json"), "r")
-        botcred = json.load(botfile)
-        botfile.close()
-        self.otp_enabled = otp
+    def __init__(self):
+        self.config = parse_config(self.config_file_path)
+        self.otp_enabled = self.config["bototp"]
+        self.access_whitelist_user = self.config["botwhitelist"]
+        self.updater = None
+        if self.config["bottoken"] == "":
+            text = "No bot token found in nodebot.conf. Please use @BotFather to create telegram bot and acquire token."
+            print(text)
+            logToFile(text)
+            return
 
         logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
         self.logger = logging.getLogger(__name__)
@@ -52,7 +58,7 @@ class Bot:
         with open(self.root_dir + "/list_of_commands.txt", "r") as file:
             self.commands = file.readlines()
 
-        self.updater = Updater(token=botcred["token"], request_kwargs={'read_timeout': 6})
+        self.updater = Updater(token=self.config["bottoken"], request_kwargs={'read_timeout': 6})
         self.dispatcher = self.updater.dispatcher
         msghandler = MessageHandler(Filters.text, self.msg_handle)
         self.dispatcher.add_handler(msghandler)
@@ -98,17 +104,15 @@ class Bot:
                 qr = pyqrcode.create(pr_uri)
                 qr.png(self.root_dir + "/private/OTP.png", scale=5)
 
-        # read whitelist
-        with open(self.root_dir + "/private/whitelist.txt", "r") as file:
-            self.access_whitelist_user = file.readlines()
-        self.access_whitelist_user = [x.strip() for x in self.access_whitelist_user]
         # init user data
         self.userdata = UserData(self.access_whitelist_user)
 
         # init wallet
-        self.LNwallet = Wallet(self.updater.bot, self.userdata, enable_otp=self.otp_enabled)
+        self.LNwallet = Wallet(self.updater.bot, self.userdata, self.config)
 
     def run(self):
+        if self.updater is None:
+            return
         self.updater.start_polling()
         logToFile("telegram bot online")
 
@@ -609,32 +613,35 @@ class Bot:
 
         if "ADD WHITELIST" in cmd.upper():
             params = cmd.split(' ')
-            if len(params) == 3:
-                username = params[2]
-                if username not in self.access_whitelist_user:
-                    with open(self.root_dir + "/private/whitelist.txt", "a") as file:
-                        file.write(username + "\n")
-                    self.access_whitelist_user.append(username)
-                    self.userdata.add_new_user(username)
-                    bot.send_message(chat_id=msg.chat_id, text=username + " added to whitelist")
+            if (len(params) == 3 and self.otp_enabled is False) or (len(params) == 4 and self.otp_enabled):
+                if self.otp_enabled:
+                    if not self.LNwallet.check_otp(params[3]):
+                        bot.send_message(chat_id=msg.chat_id, text="2FA code not valid")
+                        return
+                par_username = params[2]
+                if par_username not in self.access_whitelist_user:
+                    self.access_whitelist_user.append(par_username)
+                    self.userdata.add_new_user(par_username)
+                    update_config_whitelist(self.config_file_path, self.access_whitelist_user)
+                    bot.send_message(chat_id=msg.chat_id, text=par_username + " added to whitelist")
                 else:
-                    bot.send_message(chat_id=msg.chat_id, text=username + " already in whitelist")
+                    bot.send_message(chat_id=msg.chat_id, text=par_username + " already in whitelist")
 
         elif "REMOVE WHITELIST" in cmd.upper():
             params = cmd.split(' ')
-            if len(params) == 3:
-                username = params[2]
-                if username in self.access_whitelist_user:
-                    self.access_whitelist_user.remove(username)
-                    with open(self.root_dir + "/private/whitelist.txt", "w") as file:
-                        file.truncate()
-                    with open(self.root_dir + "/private/whitelist.txt", "w") as file:
-                        for user in self.access_whitelist_user:
-                            file.write(user + "\n")
-                    self.userdata.remove_user(username)
-                    bot.send_message(chat_id=msg.chat_id, text=username + " removed from whitelist")
+            if (len(params) == 3 and self.otp_enabled is False) or (len(params) == 4 and self.otp_enabled):
+                if self.otp_enabled:
+                    if not self.LNwallet.check_otp(params[3]):
+                        bot.send_message(chat_id=msg.chat_id, text="2FA code not valid")
+                        return
+                par_username = params[2]
+                if par_username in self.access_whitelist_user:
+                    self.access_whitelist_user.remove(par_username)
+                    self.userdata.remove_user(par_username)
+                    update_config_whitelist(self.config_file_path, self.access_whitelist_user)
+                    bot.send_message(chat_id=msg.chat_id, text=par_username + " removed from whitelist")
                 else:
-                    bot.send_message(chat_id=msg.chat_id, text=username + " not in whitelist")
+                    bot.send_message(chat_id=msg.chat_id, text=par_username + " not in whitelist")
 
     @restricted
     def image_handle(self, bot, update):
@@ -873,5 +880,5 @@ class Bot:
         self.userdata.set_conv_state(msg.from_user.username, "openChannel")
 
 if __name__ == "__main__":
-    nodebot = Bot(otp=False)
+    nodebot = Bot()
     nodebot.run()
