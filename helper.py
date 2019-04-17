@@ -159,9 +159,11 @@ def amount_parse(amount, unit):
         for allowed_unit in allowed_units:
             pos = amount.lower().find(allowed_unit.lower())
             if pos > -1:
-                amount = amount[:pos].replace(" ", "")  # remove all spaces
+                amount = amount[:pos]
                 curr_unit = allowed_unit
                 break
+
+        amount = amount.replace(" ", "")  # remove all spaces
 
         if ((amount.count(".") == 1 and amount.count(",") == 0) or
                 (amount.count(".") == 0 and amount.count(",") == 0) or
