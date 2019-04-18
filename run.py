@@ -71,6 +71,8 @@ class Bot:
         self.dispatcher.add_handler(start_handler)
         btc_unit_handler = CommandHandler('bitcoin_unit', self.select_unit)
         self.dispatcher.add_handler(btc_unit_handler)
+        btc_exp_handler = CommandHandler('block_explorer', self.select_explorer)
+        self.dispatcher.add_handler(btc_exp_handler)
         notif_handler = CommandHandler('notifications', self.notifications_toggle)
         self.dispatcher.add_handler(notif_handler)
         walletCancelPayHandler = CommandHandler('cancel_payment', self.cancelPayment)
@@ -145,6 +147,14 @@ class Bot:
         ]
         unit_menu = build_menu(button_list, n_cols=1)
         return InlineKeyboardMarkup(unit_menu)
+
+    def explorer_menu(self):
+        button_list = []
+        for key, value in self.LNwallet.get_available_explorers().items():
+            button_list.append(InlineKeyboardButton(key, callback_data="exp_"+key))
+
+        explorer_menu = build_menu(button_list, n_cols=1)
+        return InlineKeyboardMarkup(explorer_menu)
 
     def confirm_menu(self, type="payment"):
         button_list = [
@@ -350,6 +360,11 @@ class Bot:
         if param[0] == "unit":
             self.userdata.set_selected_unit(username, param[1])
             bot.send_message(chat_id=query.message.chat_id, text=param[1]+" selected")
+
+        elif param[0] == "exp":
+            explorerLink = self.LNwallet.get_available_explorers()[param[1]]
+            self.userdata.set_default_explorer(username, explorerLink)
+            bot.send_message(chat_id=query.message.chat_id, text=param[1] + " has been set successfully.")
 
         elif param[0] == "notif":
             self.userdata.toggle_notifications_state(username, param[1])
@@ -840,13 +855,18 @@ class Bot:
         text = "<b>Command List</b>\n"
         for c in self.commands:
             text += "/" + c
-        text += "\n\nTo pay invoice just send picture of a QR code or directly paste invoice text in chat."
+        text += "\n\nTo pay LN invoice just send picture of a QR code or directly paste invoice text in chat."
         bot.send_message(chat_id=msg.chat_id, text=text, parse_mode=telegram.ParseMode.HTML)
 
     @restricted
     def select_unit(self, bot, update):
         msg = update["message"]
         bot.send_message(chat_id=msg.chat_id, text="Please select unit you want to use.", reply_markup=self.unit_menu())
+
+    @restricted
+    def select_explorer(self, bot, update):
+        msg = update["message"]
+        bot.send_message(chat_id=msg.chat_id, text="Please select block explorer you want to use, when opening Tx links.", reply_markup=self.explorer_menu())
 
     @restricted
     def notifications_toggle(self, bot, update):

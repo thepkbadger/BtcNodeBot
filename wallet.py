@@ -17,9 +17,7 @@ class Wallet:
     explorerTxLink = {
         "blockstream.info": "https://blockstream.info/tx/",
         "oxt.me": "https://oxt.me/transaction/",
-        "blockcypher.com": "https://live.blockcypher.com/btc/tx/",
-        "blockchair.com": "https://blockchair.com/bitcoin/transaction/",
-        "blockchain.com": "https://www.blockchain.com/btc/tx/"
+        "blockcypher.com": "https://live.blockcypher.com/btc/tx/"
     }
 
     def __init__(self, bot, userdata, config):
