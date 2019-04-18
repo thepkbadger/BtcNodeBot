@@ -87,7 +87,7 @@ root_dir = os.path.dirname(os.path.abspath(__file__))
 
 
 def logToFile(msg):
-    with open(root_dir + "/nodebot.log", "a") as file:
+    with open(root_dir + "/btcnodebot.log", "a") as file:
         file.write(datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S") + " - " + str(msg) + "\n")
 
 

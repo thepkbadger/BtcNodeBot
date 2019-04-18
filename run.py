@@ -38,7 +38,7 @@ def restricted(func):
 class Bot:
 
     root_dir = os.path.dirname(os.path.abspath(__file__))
-    config_file_path = os.path.join(root_dir, "private", "nodebot.conf")
+    config_file_path = os.path.join(root_dir, "private", "btcnodebot.conf")
     access_whitelist_user = []
 
     def __init__(self):
@@ -47,7 +47,7 @@ class Bot:
         self.access_whitelist_user = self.config["botwhitelist"]
         self.updater = None
         if self.config["bottoken"] == "":
-            text = "No bot token found in nodebot.conf. Please use @BotFather to create telegram bot and acquire token."
+            text = "No bot token found in btcnodebot.conf. Please use @BotFather to create telegram bot and acquire token."
             print(text)
             logToFile(text)
             return
@@ -104,7 +104,7 @@ class Bot:
                 secret = pyotp.random_base32()
                 with open(self.root_dir + "/private/OTP.txt", "w") as file:
                     file.write(secret)
-                pr_uri = pyotp.totp.TOTP(secret).provisioning_uri("NodeBot")
+                pr_uri = pyotp.totp.TOTP(secret).provisioning_uri("BtcNodeBot")
                 qr = pyqrcode.create(pr_uri)
                 qr.png(self.root_dir + "/private/OTP.png", scale=5)
 
@@ -1024,5 +1024,5 @@ class Bot:
         self.userdata.set_conv_state(msg.from_user.username, "openChannel")
 
 if __name__ == "__main__":
-    nodebot = Bot()
-    nodebot.run()
+    btcnodebot = Bot()
+    btcnodebot.run()

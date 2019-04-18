@@ -3,7 +3,6 @@ requests
 pyqrcode==1.2.1
 pypng
 pyotp
-############# wallet #
 pyzbar  # on linux install sudo apt-get install libzbar0
 grpcio
 grpcio-tools
