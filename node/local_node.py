@@ -279,6 +279,30 @@ class LocalNode:
             logToFile("Exception open_channel: " + text)
             return None, text
 
+    def close_channel(self, channel_point, target_conf, sat_per_byte, force):
+        try:
+            txid = channel_point[:channel_point.find(':')]
+            output_index = int(channel_point[channel_point.find(':')+1:])
+            funding_txid_bytes = bytes.fromhex(txid)[:: -1]
+
+            args = {"channel_point": {"funding_txid_bytes": funding_txid_bytes, "output_index": output_index}, "force": force}
+            if sat_per_byte > 0:
+                args["sat_per_byte"] = sat_per_byte
+            elif target_conf > 0:
+                args["target_conf"] = target_conf
+
+            request = ln.CloseChannelRequest(**args)
+            for response in self.stub.CloseChannel(request):
+                ret = MessageToDict(response, including_default_value_fields=True)
+                return ret, None  # return after close_pending received
+        except Exception as e:
+            if hasattr(e, "_state") and hasattr(e._state, "details"):
+                text = str(e._state.details)
+            else:
+                text = str(e)
+            logToFile("Exception close_channel: " + text)
+            return None, text
+
     def get_balance_report(self):
         try:
             onchain_wallet = self.stub.WalletBalance(ln.WalletBalanceRequest())

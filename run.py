@@ -93,6 +93,8 @@ class Bot:
         self.dispatcher.add_handler(walletOpenChannelHandler)
         walletCancelOpenChHandler = CommandHandler('cancel_opening_channel', self.cancelOpeningChannel)
         self.dispatcher.add_handler(walletCancelOpenChHandler)
+        walletCancelCloseChHandler = CommandHandler('cancel_channel_closing', self.cancelClosingChannel)
+        self.dispatcher.add_handler(walletCancelCloseChHandler)
 
         if self.otp_enabled is True:
             # generate new 2fA secret if doesn't exist
@@ -195,6 +197,22 @@ class Bot:
         open_channel_menu = build_menu(button_list, n_cols=2)
         return InlineKeyboardMarkup(open_channel_menu)
 
+    def close_channel_button(self, chan_id):
+        button_list = [
+            InlineKeyboardButton("Close channel", callback_data="closech_" + chan_id)
+        ]
+        close_channel_button = build_menu(button_list, n_cols=1)
+        return InlineKeyboardMarkup(close_channel_button)
+
+    def close_channel_menu(self):
+        button_list = [
+            InlineKeyboardButton("Target Conf", callback_data="closech_tconf"),
+            InlineKeyboardButton("Fee", callback_data="closech_fee"),
+            InlineKeyboardButton("Close channel ->", callback_data="closech_execute")
+        ]
+        close_channel_menu = build_menu(button_list, n_cols=2)
+        return InlineKeyboardMarkup(close_channel_menu)
+
     def channel_list_menu(self, username, page=0, per_page=5):
         channels, err = self.LNwallet.getChannels(page, per_page)
         if err is not None:
@@ -240,6 +258,18 @@ class Bot:
         )
         openchthread.start()
         self.userdata.delete_open_channel_data(username)
+        self.userdata.set_conv_state(username, None)
+
+    def executeClosingChannel(self, username, chat_id, code_otp=""):
+        data = self.userdata.get_close_channel_data(username)
+        closechthread = threading.Thread(
+            target=self.LNwallet.closeChannel,
+            args=[self.updater.bot, chat_id, username, data["chan_id"], data["target_conf"],
+                  data["sat_per_byte"], code_otp
+                  ]
+        )
+        closechthread.start()
+        self.userdata.delete_close_channel_data(username)
         self.userdata.set_conv_state(username, None)
 
     def executePayment(self, username, chat_id, code_otp=""):
@@ -399,9 +429,47 @@ class Bot:
                     bot.send_message(chat_id=query.message.chat_id, text="Cannot get channel data, " + err)
                 else:
                     formated = self.LNwallet.formatChannelOutput(ch_data, username)
-                    bot.send_message(chat_id=query.message.chat_id, text=formated, parse_mode=telegram.ParseMode.HTML, disable_web_page_preview=True)
+                    bot.send_message(chat_id=query.message.chat_id, text=formated, reply_markup=self.close_channel_button(ch_data["chan_id"]), parse_mode=telegram.ParseMode.HTML, disable_web_page_preview=True)
                 page = self.userdata.get_pagination(username)
                 self.getChannelsPage(username, query.message.chat_id, page)
+
+        elif param[0] == "closech":
+            if param[1] == "tconf":
+                self.userdata.set_conv_state(username, "closeChannel_tconf")
+                bot.send_message(chat_id=query.message.chat_id, text="Enter the target number of blocks that the commitment transaction should be confirmed by.")
+            elif param[1] == "fee":
+                self.userdata.set_conv_state(username, "closeChannel_fee")
+                bot.send_message(chat_id=query.message.chat_id, text="Enter fee in sat/byte, for commitment transaction.")
+            elif param[1] == "execute":
+                self.userdata.set_conv_state(username, "closeChannel_execute")
+                closing_data = self.userdata.get_close_channel_data(username)
+                if closing_data["chan_id"] == "":
+                    self.updater.bot.send_message(chat_id=query.message.chat_id, text="Channel closing failed, no ChanID.")
+                    self.userdata.delete_close_channel_data(username)
+                    self.userdata.set_conv_state(username, None)
+                else:
+                    channel_data, error = self.LNwallet.getChannelData(closing_data["chan_id"])
+                    if error is not None:
+                        self.updater.bot.send_message(chat_id=query.message.chat_id, text="Channel closing failed, " + error)
+                        self.userdata.delete_close_channel_data(username)
+                        self.userdata.set_conv_state(username, None)
+                        return
+                    msgtext = self.LNwallet.formatChannelCloseOutput(channel_data, closing_data, username)
+                    if self.otp_enabled:
+                        self.userdata.set_conv_state(username, "closeChannel_otp")
+                        bot.send_message(chat_id=query.message.chat_id, text=msgtext + "\n\n<i>send me 2FA code to close or</i> /cancel_channel_closing", parse_mode=telegram.ParseMode.HTML)
+                    else:
+                        bot.send_message(chat_id=query.message.chat_id, text=msgtext, parse_mode=telegram.ParseMode.HTML)
+                        bot.send_message(chat_id=query.message.chat_id, text="Do you want to close this channel?", reply_markup=self.confirm_menu(type="closech"))
+            elif param[1] == "yes":
+                self.executeClosingChannel(username, query.message.chat_id)
+            elif param[1] == "no":
+                self.cancelClosingChannel(bot, update)
+            else:
+                self.userdata.delete_close_channel_data(username)
+                self.userdata.set_conv_state(username, "closeChannel")
+                self.userdata.set_close_channel_data(username, "chan_id", param[1])
+                bot.send_message(chat_id=query.message.chat_id, text="Enter details of commitment transaction or press close channel.", reply_markup=self.close_channel_menu())
 
         elif param[0] == "opench":
             if param[1] == "addr":
@@ -542,6 +610,36 @@ class Bot:
                 self.userdata.set_conv_state(msg.from_user.username, "openChannel")
                 return
 
+        # --------- closing channel
+        if conv_state in ["closeChannel_tconf", "closeChannel_fee"]:
+            try:
+                values_valid = True
+                if conv_state == "closeChannel_tconf":
+                    value = int(cmd)
+                    if value > 0:
+                        self.userdata.set_close_channel_data(username, "target_conf", value)
+                    else:
+                        values_valid = False
+                elif conv_state == "closeChannel_fee":
+                    value = int(cmd)
+                    if value > 0:
+                        self.userdata.set_close_channel_data(username, "sat_per_byte", value)
+                    else:
+                        values_valid = False
+
+                if values_valid:
+                    respText = "Success. Enter details of commitment transaction or press close channel."
+                else:
+                    respText = "<b>Provided value is not valid.</b>"
+                bot.send_message(chat_id=msg.chat_id, text=respText, reply_markup=self.close_channel_menu(), parse_mode=telegram.ParseMode.HTML)
+                self.userdata.set_conv_state(msg.from_user.username, "closeChannel")
+                return
+
+            except Exception as e:
+                bot.send_message(chat_id=msg.chat_id, text="<b>Provided value is not valid.</b>", reply_markup=self.close_channel_menu(), parse_mode=telegram.ParseMode.HTML)
+                self.userdata.set_conv_state(msg.from_user.username, "closeChannel")
+                return
+
         # --------- sending on-chain transaction
         if conv_state in ["onchainSend_amount", "onchainSend_address", "onchainSend_fee", "onchainSend_tconf"]:
             try:
@@ -589,6 +687,13 @@ class Bot:
                 self.executeOpeningChannel(msg.from_user.username, msg.chat_id, code_otp=cmd)
             else:
                 bot.send_message(chat_id= msg.chat_id, text="This is not 2FA code. Please send 6-digit code or /cancel_opening_channel")
+            return
+
+        if conv_state == "closeChannel_otp":
+            if re.fullmatch("[0-9]{6}", cmd) is not None:
+                self.executeClosingChannel(msg.from_user.username, msg.chat_id, code_otp=cmd)
+            else:
+                bot.send_message(chat_id=msg.chat_id, text="This is not 2FA code. Please send 6-digit code or /cancel_channel_closing")
             return
 
         if conv_state == "onchainSend_otp":
@@ -775,6 +880,25 @@ class Bot:
             bot.send_message(chat_id=chat_id, text="Payment of " + formatAmount(int(amt), self.userdata.get_selected_unit(username)) + " cancelled.")
         else:
             bot.send_message(chat_id=chat_id, text="You don't have any invoice to cancel.")
+
+    @restricted
+    def cancelClosingChannel(self, bot, update):
+        if update["message"] is not None:  # command execution
+            msg = update["message"]
+            username = msg.from_user.username
+            chat_id = msg.chat_id
+        else:  # call from callback handler
+            username = update.effective_user.username
+            chat_id = update.callback_query.message.chat_id
+
+        data = self.userdata.get_close_channel_data(username)
+        if data["chan_id"] == "":
+            bot.send_message(chat_id=chat_id, text="No channel to cancel.")
+            return
+
+        self.userdata.delete_close_channel_data(username)
+        self.userdata.set_conv_state(username, None)
+        bot.send_message(chat_id=chat_id, text="Channel closing canceled.")
 
     @restricted
     def cancelOpeningChannel(self, bot, update):

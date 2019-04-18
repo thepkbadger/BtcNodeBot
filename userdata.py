@@ -14,7 +14,8 @@ class UserData:
             "selected_unit": "sats",
             "onchain_send_data": {"amount": 0, "address": "", "sat_per_byte": -1, "target_conf": -1},
             "add_invoice_data": {"amount": 0, "expiry": 3600, "description": ""},
-            "open_channel_data": {"address": "", "local_amount": 0, "target_conf": -1, "sat_per_byte": -1, "private": False, "min_htlc_msat": 1000, "remote_csv_delay": -1}
+            "open_channel_data": {"address": "", "local_amount": 0, "target_conf": -1, "sat_per_byte": -1, "private": False, "min_htlc_msat": 1000, "remote_csv_delay": -1},
+            "close_channel_data": {"chan_id": "", "target_conf": -1, "sat_per_byte": -1}
         },
         "chat_id": None,
         "conversation_state": None,
@@ -111,6 +112,17 @@ class UserData:
 
     def delete_open_channel_data(self, username):
         self.data[username]["wallet"]["open_channel_data"] = {"address": "", "local_amount": 0, "target_conf": -1, "sat_per_byte": -1, "private": False, "min_htlc_msat": 1000, "remote_csv_delay": -1}
+        self.save_userdata()
+
+    def get_close_channel_data(self, username):
+        return self.data[username]["wallet"]["close_channel_data"]
+
+    def set_close_channel_data(self, username, key, value):
+        self.data[username]["wallet"]["close_channel_data"][key] = value
+        self.save_userdata()
+
+    def delete_close_channel_data(self, username):
+        self.data[username]["wallet"]["close_channel_data"] = {"chan_id": "", "target_conf": -1, "sat_per_byte": -1}
         self.save_userdata()
 
     def get_selected_unit(self, username):

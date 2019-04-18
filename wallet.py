@@ -175,15 +175,20 @@ class Wallet:
         if err is not None:
             return None, err
 
-        for ch in channels["channels"]:
-            if ch["chan_id"] == chan_id:
-                info_data, error_info = self.node.get_ln_node_info(pub_key=ch["remote_pubkey"])
-                if info_data is None:
-                    ch["alias"] = ch["remote_pubkey"][:12]
-                else:
-                    ch["alias"] = info_data["node"]["alias"]
-                return ch, None
-        return None, "channel not found."
+        try:
+            for ch in channels["channels"]:
+                if ch["chan_id"] == chan_id:
+                    info_data, error_info = self.node.get_ln_node_info(pub_key=ch["remote_pubkey"])
+                    if info_data is None:
+                        ch["alias"] = ch["remote_pubkey"][:12]
+                    else:
+                        ch["alias"] = info_data["node"]["alias"]
+                    return ch, None
+            return None, "channel not found."
+        except Exception as e:
+            text = str(e)
+            logToFile("Exception getChannelData: " + text)
+            return None, text
 
     def openChannel(self, bot, chat_id, username, addr, local_funding_amount, target_conf=-1, sat_per_byte=-1, private=False, min_htlc_msat=1000, remote_csv_delay=-1, otp_code=""):
         sending_msg = bot.send_message(chat_id=chat_id, text="Opening channel...")
@@ -218,6 +223,40 @@ class Wallet:
             text = str(e)
             logToFile("Exception openChannel wallet: " + text)
             bot.edit_message_text(chat_id=chat_id, message_id=sending_msg.message_id, text="I couldn't open channel, there was an error.")
+
+    def closeChannel(self, bot, chat_id, username, chan_id, target_conf=-1, sat_per_byte=-1, otp_code=""):
+        msg = bot.send_message(chat_id=chat_id, text="Closing channel...")
+        try:
+            if self.check_otp(otp_code) is False:
+                bot.edit_message_text(chat_id=chat_id, message_id=msg.message_id, text="I couldn't close channel, 2FA code not valid.")
+                return
+
+            ch, error = self.getChannelData(chan_id)
+            if error is not None:
+                bot.edit_message_text(chat_id=chat_id, message_id=msg.message_id, text="I couldn't close channel, " + error)
+                return
+
+            force = False if ch["active"] else True
+
+            response, error_close = self.node.close_channel(ch["channel_point"], target_conf, sat_per_byte, force)
+            if error_close is not None:
+                bot.edit_message_text(chat_id=chat_id, message_id=msg.message_id, text="I couldn't close channel, " + error_close)
+                return
+
+            explorerLink = self.userdata.get_default_explorer(username)
+            commit_txid_bytes = b64decode(response["close_pending"]["txid"])[:: -1]  # decode base64 and reverse bytes
+            commit_txid = commit_txid_bytes.hex()  # bytes to hex string
+            close_type = "force " if force else ""
+            info = str(ch["csv_delay"]) + " blocks, for funds to be available." if force else "for commitment tx confirmation."
+            msg_text = "<b>Channel successfully " + close_type + "closed.</b>\n" \
+                       + "Please wait " + info + "\n" \
+                       + "Commitment Tx: <a href='" + explorerLink + commit_txid + "'>" + commit_txid[:8] + "..." + commit_txid[-8:] + "</a>"
+            bot.edit_message_text(chat_id=chat_id, message_id=msg.message_id, text=msg_text, parse_mode=telegram.ParseMode.HTML, disable_web_page_preview=True)
+
+        except Exception as e:
+            text = str(e)
+            logToFile("Exception closeChannel wallet: " + text)
+            bot.edit_message_text(chat_id=chat_id, message_id=msg.message_id, text="I couldn't close channel, there was an error.")
 
     def getOnchainAddress(self, type="p2wkh"):
         try:
@@ -389,6 +428,32 @@ class Wallet:
             + "Fees(sat/byte): " + str(fee)
 
         args = [data["amount"]]
+
+        unit = self.userdata.get_selected_unit(username)
+        for idx, arg in enumerate(args):
+            args[idx] = formatAmount(arg, unit)
+
+        text = text.format(*args)
+        return text
+
+    def formatChannelCloseOutput(self, data, closing_data, username, lb_symbol="\n"):
+        active_text = "" if data["active"] else "  🔴 <i>offline</i>"
+        target_conf = closing_data["target_conf"] if closing_data["target_conf"] > 0 else "/"
+        fee = closing_data["sat_per_byte"] if closing_data["sat_per_byte"] > 0 else "/"
+
+        text = "<b>" + data["alias"] + "</b>" + active_text + lb_symbol \
+               + data["remote_pubkey"] + lb_symbol \
+               + "Capacity: {0}" + lb_symbol \
+               + "Local Balance: {1}" + lb_symbol \
+               + "Remote Balance: {2}" + lb_symbol + lb_symbol \
+               + "Commitment transaction: " + lb_symbol \
+               + "Target Conf: " + str(target_conf) + lb_symbol \
+               + "Fees(sat/byte): " + str(fee)
+
+        args = [
+            int(data["local_balance"]) + int(data["remote_balance"]), int(data["local_balance"]),
+            int(data["remote_balance"])
+        ]
 
         unit = self.userdata.get_selected_unit(username)
         for idx, arg in enumerate(args):
