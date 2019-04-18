@@ -4,7 +4,6 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 from functools import wraps
 import logging
 import os
-import json
 import pyqrcode, pyotp
 import threading
 import uuid
@@ -19,19 +18,23 @@ from userdata import UserData
 def restricted(func):
     @wraps(func)
     def wrapped(self, bot, update, *args, **kwargs):
-        if update.callback_query is not None:
-            from_user = update.effective_user
-            data = update["callback_query"]["message"]
-        else:
-            data = update["message"]
-            from_user = data.from_user
+        try:
+            if update.callback_query is not None:
+                from_user = update.effective_user
+                data = update["callback_query"]["message"]
+            else:
+                data = update["message"]
+                from_user = data.from_user
 
-        if (from_user.username is None) or (from_user.username not in self.access_whitelist_user):  # user is not authorized
-            with open(self.root_dir + "/unauthorized.txt", "a") as file:
-                file.write(data.date.strftime("%Y-%m-%d %H:%M:%S") + "," + str(from_user.username) + "," + str(
-                    from_user.first_name) + "," +str(from_user.last_name) + "," + str(from_user.id) + "," + str(from_user.is_bot) + "," + str(data.text) + "\n")
+            if (from_user.username is None) or (from_user.username not in self.access_whitelist_user):  # user is not authorized
+                with open(self.root_dir + "/unauthorized.txt", "a") as file:
+                    file.write(data.date.strftime("%Y-%m-%d %H:%M:%S") + "," + str(from_user.username) + "," + str(
+                        from_user.first_name) + "," +str(from_user.last_name) + "," + str(from_user.id) + "," + str(from_user.is_bot) + "," + str(data.text) + "\n")
+                return
+            return func(self, bot, update, *args, **kwargs)
+        except Exception as e:
+            logToFile("Exception restricted: " + str(e))
             return
-        return func(self, bot, update, *args, **kwargs)
     return wrapped
 
 
@@ -352,184 +355,187 @@ class Bot:
     @restricted
     def callback_handle(self, bot, update):
         query = update.callback_query
-        param = query.data.split('_')
         username = update.effective_user.username
+        try:
+            param = query.data.split('_')
+            bot.delete_message(chat_id=query.message.chat_id, message_id=query.message.message_id)
 
-        bot.delete_message(chat_id=query.message.chat_id, message_id=query.message.message_id)
+            if param[0] == "unit":
+                self.userdata.set_selected_unit(username, param[1])
+                bot.send_message(chat_id=query.message.chat_id, text=param[1]+" selected")
 
-        if param[0] == "unit":
-            self.userdata.set_selected_unit(username, param[1])
-            bot.send_message(chat_id=query.message.chat_id, text=param[1]+" selected")
+            elif param[0] == "exp":
+                explorerLink = self.LNwallet.get_available_explorers()[param[1]]
+                self.userdata.set_default_explorer(username, explorerLink)
+                bot.send_message(chat_id=query.message.chat_id, text=param[1] + " has been set successfully.")
 
-        elif param[0] == "exp":
-            explorerLink = self.LNwallet.get_available_explorers()[param[1]]
-            self.userdata.set_default_explorer(username, explorerLink)
-            bot.send_message(chat_id=query.message.chat_id, text=param[1] + " has been set successfully.")
+            elif param[0] == "notif":
+                self.userdata.toggle_notifications_state(username, param[1])
+                bot.send_message(chat_id=query.message.chat_id, text="Notifications settings updated.", reply_markup=self.notif_menu(username))
 
-        elif param[0] == "notif":
-            self.userdata.toggle_notifications_state(username, param[1])
-            bot.send_message(chat_id=query.message.chat_id, text="Notifications settings updated.", reply_markup=self.notif_menu(username))
+            elif param[0] == "payment":
+                if param[1] == "yes":
+                    self.executePayment(username, query.message.chat_id)
+                elif param[1] == "no":
+                    self.cancelPayment(bot, update)
 
-        elif param[0] == "payment":
-            if param[1] == "yes":
-                self.executePayment(username, query.message.chat_id)
-            elif param[1] == "no":
-                self.cancelPayment(bot, update)
-
-        elif param[0] == "addinvoice":
-            if param[1] == "amt":
-                self.userdata.set_conv_state(username, "createInvoice_amount")
-                bot.send_message(chat_id=query.message.chat_id, text="Write amount in supported units (BTC, mBTC, bits, sats). Examples: 1.5BTC 20,4bits 45 000 000sats 56000sats\nIf there is no unit present, selected unit is assumed.")
-            elif param[1] == "desc":
-                self.userdata.set_conv_state(username, "createInvoice_description")
-                bot.send_message(chat_id=query.message.chat_id, text="Write description.")
-            elif param[1] == "expiry":
-                self.userdata.set_conv_state(username, "createInvoice_expiry")
-                bot.send_message(chat_id=query.message.chat_id, text="How much time you want invoice to be valid? seconds (add 's' after number) or hours (add 'h')")
-            elif param[1] == "generate":
-                self.userdata.set_conv_state(username, None)
-                self.addInvoice(username, query.message.chat_id)
-
-        elif param[0] == "newaddress":
-            if param[1] == "compatibility":
-                self.getNewOnchainAddress(query.message.chat_id, "np2wkh")
-            elif param[1] == "nativesegwit":
-                self.getNewOnchainAddress(query.message.chat_id, "p2wkh")
-
-        elif param[0] == "onchsend":
-            if param[1] == "amt":
-                self.userdata.set_conv_state(username, "onchainSend_amount")
-                bot.send_message(chat_id=query.message.chat_id, text="Write amount in supported units (BTC, mBTC, bits, sats). Examples: 1.5BTC 20,4bits 45 000 000sats 56000sats\nIf there is no unit present, selected unit is assumed.")
-            elif param[1] == "addr":
-                self.userdata.set_conv_state(username, "onchainSend_address")
-                bot.send_message(chat_id=query.message.chat_id, text="Send picture of a QR code or enter bitcoin address.")
-            elif param[1] == "fee":
-                self.userdata.set_conv_state(username, "onchainSend_fee")
-                bot.send_message(chat_id=query.message.chat_id, text="Enter fee in sat/byte.")
-            elif param[1] == "tconf":
-                self.userdata.set_conv_state(username, "onchainSend_tconf")
-                bot.send_message(chat_id=query.message.chat_id, text="Enter the target number of blocks that transaction should be confirmed by.")
-            elif param[1] == "send":
-                self.userdata.set_conv_state(username, "onchainSend_send")
-                data = self.userdata.get_onchain_send_data(username)
-                if data["address"] == "" or data["amount"] <= 0:
-                    self.updater.bot.send_message(chat_id=query.message.chat_id, text="Sending failed, Address and Amount are required.")
-                    self.userdata.delete_onchain_send_data(username)
+            elif param[0] == "addinvoice":
+                if param[1] == "amt":
+                    self.userdata.set_conv_state(username, "createInvoice_amount")
+                    bot.send_message(chat_id=query.message.chat_id, text="Write amount in supported units (BTC, mBTC, bits, sats). Examples: 1.5BTC 20,4bits 45 000 000sats 56000sats\nIf there is no unit present, selected unit is assumed.")
+                elif param[1] == "desc":
+                    self.userdata.set_conv_state(username, "createInvoice_description")
+                    bot.send_message(chat_id=query.message.chat_id, text="Write description.")
+                elif param[1] == "expiry":
+                    self.userdata.set_conv_state(username, "createInvoice_expiry")
+                    bot.send_message(chat_id=query.message.chat_id, text="How much time you want invoice to be valid? seconds (add 's' after number) or hours (add 'h')")
+                elif param[1] == "generate":
                     self.userdata.set_conv_state(username, None)
-                else:
-                    msgtext = self.LNwallet.formatOnchainTxOutput(self.userdata.get_onchain_send_data(username), username)
-                    if self.otp_enabled:
-                        self.userdata.set_conv_state(username, "onchainSend_otp")
-                        bot.send_message(chat_id=query.message.chat_id, text=msgtext + "\n\n<i>send me 2FA code or</i> /cancel_transaction", parse_mode=telegram.ParseMode.HTML)
+                    self.addInvoice(username, query.message.chat_id)
+
+            elif param[0] == "newaddress":
+                if param[1] == "compatibility":
+                    self.getNewOnchainAddress(query.message.chat_id, "np2wkh")
+                elif param[1] == "nativesegwit":
+                    self.getNewOnchainAddress(query.message.chat_id, "p2wkh")
+
+            elif param[0] == "onchsend":
+                if param[1] == "amt":
+                    self.userdata.set_conv_state(username, "onchainSend_amount")
+                    bot.send_message(chat_id=query.message.chat_id, text="Write amount in supported units (BTC, mBTC, bits, sats). Examples: 1.5BTC 20,4bits 45 000 000sats 56000sats\nIf there is no unit present, selected unit is assumed.")
+                elif param[1] == "addr":
+                    self.userdata.set_conv_state(username, "onchainSend_address")
+                    bot.send_message(chat_id=query.message.chat_id, text="Send picture of a QR code or enter bitcoin address.")
+                elif param[1] == "fee":
+                    self.userdata.set_conv_state(username, "onchainSend_fee")
+                    bot.send_message(chat_id=query.message.chat_id, text="Enter fee in sat/byte.")
+                elif param[1] == "tconf":
+                    self.userdata.set_conv_state(username, "onchainSend_tconf")
+                    bot.send_message(chat_id=query.message.chat_id, text="Enter the target number of blocks that transaction should be confirmed by.")
+                elif param[1] == "send":
+                    self.userdata.set_conv_state(username, "onchainSend_send")
+                    data = self.userdata.get_onchain_send_data(username)
+                    if data["address"] == "" or data["amount"] <= 0:
+                        self.updater.bot.send_message(chat_id=query.message.chat_id, text="Sending failed, Address and Amount are required.")
+                        self.userdata.delete_onchain_send_data(username)
+                        self.userdata.set_conv_state(username, None)
                     else:
-                        bot.send_message(chat_id=query.message.chat_id, text=msgtext, parse_mode=telegram.ParseMode.HTML)
-                        bot.send_message(chat_id=query.message.chat_id, text="Do you want to send this transaction?", reply_markup=self.confirm_menu(type="onchsend"))
-            elif param[1] == "yes":
-                self.executeOnchainTx(username, query.message.chat_id)
-            elif param[1] == "no":
-                self.cancelOnchainTx(bot, update)
+                        msgtext = self.LNwallet.formatOnchainTxOutput(self.userdata.get_onchain_send_data(username), username)
+                        if self.otp_enabled:
+                            self.userdata.set_conv_state(username, "onchainSend_otp")
+                            bot.send_message(chat_id=query.message.chat_id, text=msgtext + "\n\n<i>send me 2FA code or</i> /cancel_transaction", parse_mode=telegram.ParseMode.HTML)
+                        else:
+                            bot.send_message(chat_id=query.message.chat_id, text=msgtext, parse_mode=telegram.ParseMode.HTML)
+                            bot.send_message(chat_id=query.message.chat_id, text="Do you want to send this transaction?", reply_markup=self.confirm_menu(type="onchsend"))
+                elif param[1] == "yes":
+                    self.executeOnchainTx(username, query.message.chat_id)
+                elif param[1] == "no":
+                    self.cancelOnchainTx(bot, update)
 
-        elif param[0] == "ch":
-            if param[1] == "forward":
-                page = self.userdata.get_pagination(username)
-                self.getChannelsPage(username, query.message.chat_id, page+1)
-            elif param[1] == "back":
-                page = self.userdata.get_pagination(username)
-                if page > 0:
-                    self.getChannelsPage(username, query.message.chat_id, page - 1)
-            else:
-                bot.send_chat_action(chat_id=query.message.chat_id, action=telegram.ChatAction.TYPING)
-                ch_data, err = self.LNwallet.getChannelData(chan_id=param[1])
-                if err is not None:
-                    bot.send_message(chat_id=query.message.chat_id, text="Cannot get channel data, " + err)
+            elif param[0] == "ch":
+                if param[1] == "forward":
+                    page = self.userdata.get_pagination(username)
+                    self.getChannelsPage(username, query.message.chat_id, page+1)
+                elif param[1] == "back":
+                    page = self.userdata.get_pagination(username)
+                    if page > 0:
+                        self.getChannelsPage(username, query.message.chat_id, page - 1)
                 else:
-                    formated = self.LNwallet.formatChannelOutput(ch_data, username)
-                    bot.send_message(chat_id=query.message.chat_id, text=formated, reply_markup=self.close_channel_button(ch_data["chan_id"]), parse_mode=telegram.ParseMode.HTML, disable_web_page_preview=True)
-                page = self.userdata.get_pagination(username)
-                self.getChannelsPage(username, query.message.chat_id, page)
+                    bot.send_chat_action(chat_id=query.message.chat_id, action=telegram.ChatAction.TYPING)
+                    ch_data, err = self.LNwallet.getChannelData(chan_id=param[1])
+                    if err is not None:
+                        bot.send_message(chat_id=query.message.chat_id, text="Cannot get channel data, " + err)
+                    else:
+                        formated = self.LNwallet.formatChannelOutput(ch_data, username)
+                        bot.send_message(chat_id=query.message.chat_id, text=formated, reply_markup=self.close_channel_button(ch_data["chan_id"]), parse_mode=telegram.ParseMode.HTML, disable_web_page_preview=True)
+                    page = self.userdata.get_pagination(username)
+                    self.getChannelsPage(username, query.message.chat_id, page)
 
-        elif param[0] == "closech":
-            if param[1] == "tconf":
-                self.userdata.set_conv_state(username, "closeChannel_tconf")
-                bot.send_message(chat_id=query.message.chat_id, text="Enter the target number of blocks that the commitment transaction should be confirmed by.")
-            elif param[1] == "fee":
-                self.userdata.set_conv_state(username, "closeChannel_fee")
-                bot.send_message(chat_id=query.message.chat_id, text="Enter fee in sat/byte, for commitment transaction.")
-            elif param[1] == "execute":
-                self.userdata.set_conv_state(username, "closeChannel_execute")
-                closing_data = self.userdata.get_close_channel_data(username)
-                if closing_data["chan_id"] == "":
-                    self.updater.bot.send_message(chat_id=query.message.chat_id, text="Channel closing failed, no ChanID.")
-                    self.userdata.delete_close_channel_data(username)
-                    self.userdata.set_conv_state(username, None)
-                else:
-                    channel_data, error = self.LNwallet.getChannelData(closing_data["chan_id"])
-                    if error is not None:
-                        self.updater.bot.send_message(chat_id=query.message.chat_id, text="Channel closing failed, " + error)
+            elif param[0] == "closech":
+                if param[1] == "tconf":
+                    self.userdata.set_conv_state(username, "closeChannel_tconf")
+                    bot.send_message(chat_id=query.message.chat_id, text="Enter the target number of blocks that the commitment transaction should be confirmed by.")
+                elif param[1] == "fee":
+                    self.userdata.set_conv_state(username, "closeChannel_fee")
+                    bot.send_message(chat_id=query.message.chat_id, text="Enter fee in sat/byte, for commitment transaction.")
+                elif param[1] == "execute":
+                    self.userdata.set_conv_state(username, "closeChannel_execute")
+                    closing_data = self.userdata.get_close_channel_data(username)
+                    if closing_data["chan_id"] == "":
+                        self.updater.bot.send_message(chat_id=query.message.chat_id, text="Channel closing failed, no ChanID.")
                         self.userdata.delete_close_channel_data(username)
                         self.userdata.set_conv_state(username, None)
-                        return
-                    msgtext = self.LNwallet.formatChannelCloseOutput(channel_data, closing_data, username)
-                    if self.otp_enabled:
-                        self.userdata.set_conv_state(username, "closeChannel_otp")
-                        bot.send_message(chat_id=query.message.chat_id, text=msgtext + "\n\n<i>send me 2FA code to close or</i> /cancel_channel_closing", parse_mode=telegram.ParseMode.HTML)
                     else:
-                        bot.send_message(chat_id=query.message.chat_id, text=msgtext, parse_mode=telegram.ParseMode.HTML)
-                        bot.send_message(chat_id=query.message.chat_id, text="Do you want to close this channel?", reply_markup=self.confirm_menu(type="closech"))
-            elif param[1] == "yes":
-                self.executeClosingChannel(username, query.message.chat_id)
-            elif param[1] == "no":
-                self.cancelClosingChannel(bot, update)
-            else:
-                self.userdata.delete_close_channel_data(username)
-                self.userdata.set_conv_state(username, "closeChannel")
-                self.userdata.set_close_channel_data(username, "chan_id", param[1])
-                bot.send_message(chat_id=query.message.chat_id, text="Enter details of commitment transaction or press close channel.", reply_markup=self.close_channel_menu())
-
-        elif param[0] == "opench":
-            if param[1] == "addr":
-                self.userdata.set_conv_state(username, "openChannel_addr")
-                bot.send_message(chat_id=query.message.chat_id, text="Send picture of a QR code or enter node's publickey@host.")
-            elif param[1] == "lamount":
-                self.userdata.set_conv_state(username, "openChannel_lamount")
-                bot.send_message(chat_id=query.message.chat_id, text="Write amount in supported units (BTC, mBTC, bits, sats). Examples: 1.5BTC 20,4bits 45 000 000sats 56000sats\nIf there is no unit present, selected unit is assumed.")
-            elif param[1] == "tconf":
-                self.userdata.set_conv_state(username, "openChannel_tconf")
-                bot.send_message(chat_id=query.message.chat_id, text="Enter the target number of blocks that the funding transaction should be confirmed by.")
-            elif param[1] == "fee":
-                self.userdata.set_conv_state(username, "openChannel_fee")
-                bot.send_message(chat_id=query.message.chat_id, text="Enter fee in sat/byte, for funding transaction.")
-            elif param[1] == "private":
-                self.userdata.set_conv_state(username, "openChannel_private")
-                bot.send_message(chat_id=query.message.chat_id, text="Write 'yes' for channel to be private (not announced to the greater network), else 'no'.")
-            elif param[1] == "minhtlc":
-                self.userdata.set_conv_state(username, "openChannel_minhtlc")
-                bot.send_message(chat_id=query.message.chat_id, text="Write amount in millisatoshi.\nThis is the minimum value we will require for incoming payments on the channel. Default is 1000 msat = 1 sat.")
-            elif param[1] == "csv":
-                self.userdata.set_conv_state(username, "openChannel_csv")
-                bot.send_message(chat_id=query.message.chat_id, text="Enter number of blocks.\nIf this channel is closed uncooperatively this is the number of blocks remote peer will have to wait before claiming funds.")
-            elif param[1] == "execute":
-                self.userdata.set_conv_state(username, "openChannel_execute")
-                data = self.userdata.get_open_channel_data(username)
-                if data["address"] == "" or data["local_amount"] <= 0:
-                    self.updater.bot.send_message(chat_id=query.message.chat_id, text="Opening channel failed, Node URI and Amount are required.")
-                    self.userdata.delete_open_channel_data(username)
-                    self.userdata.set_conv_state(username, None)
+                        channel_data, error = self.LNwallet.getChannelData(closing_data["chan_id"])
+                        if error is not None:
+                            self.updater.bot.send_message(chat_id=query.message.chat_id, text="Channel closing failed, " + error)
+                            self.userdata.delete_close_channel_data(username)
+                            self.userdata.set_conv_state(username, None)
+                            return
+                        msgtext = self.LNwallet.formatChannelCloseOutput(channel_data, closing_data, username)
+                        if self.otp_enabled:
+                            self.userdata.set_conv_state(username, "closeChannel_otp")
+                            bot.send_message(chat_id=query.message.chat_id, text=msgtext + "\n\n<i>send me 2FA code to close or</i> /cancel_channel_closing", parse_mode=telegram.ParseMode.HTML)
+                        else:
+                            bot.send_message(chat_id=query.message.chat_id, text=msgtext, parse_mode=telegram.ParseMode.HTML)
+                            bot.send_message(chat_id=query.message.chat_id, text="Do you want to close this channel?", reply_markup=self.confirm_menu(type="closech"))
+                elif param[1] == "yes":
+                    self.executeClosingChannel(username, query.message.chat_id)
+                elif param[1] == "no":
+                    self.cancelClosingChannel(bot, update)
                 else:
-                    msgtext = self.LNwallet.formatChannelOpenOutput(self.userdata.get_open_channel_data(username), username)
-                    if self.otp_enabled:
-                        self.userdata.set_conv_state(username, "openChannel_otp")
-                        bot.send_message(chat_id=query.message.chat_id, text=msgtext + "\n\n<i>send me 2FA code to open or</i> /cancel_opening_channel", parse_mode=telegram.ParseMode.HTML)
-                    else:
-                        bot.send_message(chat_id=query.message.chat_id, text=msgtext, parse_mode=telegram.ParseMode.HTML)
-                        bot.send_message(chat_id=query.message.chat_id, text="Do you want to open this channel?", reply_markup=self.confirm_menu(type="opench"))
-            elif param[1] == "yes":
-                self.executeOpeningChannel(username, query.message.chat_id)
-            elif param[1] == "no":
-                self.cancelOpeningChannel(bot, update)
+                    self.userdata.delete_close_channel_data(username)
+                    self.userdata.set_conv_state(username, "closeChannel")
+                    self.userdata.set_close_channel_data(username, "chan_id", param[1])
+                    bot.send_message(chat_id=query.message.chat_id, text="Enter details of commitment transaction or press close channel.", reply_markup=self.close_channel_menu())
 
-        else:
-            bot.send_message(chat_id=query.message.chat_id, text="callback parameters not valid")
+            elif param[0] == "opench":
+                if param[1] == "addr":
+                    self.userdata.set_conv_state(username, "openChannel_addr")
+                    bot.send_message(chat_id=query.message.chat_id, text="Send picture of a QR code or enter node's publickey@host.")
+                elif param[1] == "lamount":
+                    self.userdata.set_conv_state(username, "openChannel_lamount")
+                    bot.send_message(chat_id=query.message.chat_id, text="Write amount in supported units (BTC, mBTC, bits, sats). Examples: 1.5BTC 20,4bits 45 000 000sats 56000sats\nIf there is no unit present, selected unit is assumed.")
+                elif param[1] == "tconf":
+                    self.userdata.set_conv_state(username, "openChannel_tconf")
+                    bot.send_message(chat_id=query.message.chat_id, text="Enter the target number of blocks that the funding transaction should be confirmed by.")
+                elif param[1] == "fee":
+                    self.userdata.set_conv_state(username, "openChannel_fee")
+                    bot.send_message(chat_id=query.message.chat_id, text="Enter fee in sat/byte, for funding transaction.")
+                elif param[1] == "private":
+                    self.userdata.set_conv_state(username, "openChannel_private")
+                    bot.send_message(chat_id=query.message.chat_id, text="Write 'yes' for channel to be private (not announced to the greater network), else 'no'.")
+                elif param[1] == "minhtlc":
+                    self.userdata.set_conv_state(username, "openChannel_minhtlc")
+                    bot.send_message(chat_id=query.message.chat_id, text="Write amount in millisatoshi.\nThis is the minimum value we will require for incoming payments on the channel. Default is 1000 msat = 1 sat.")
+                elif param[1] == "csv":
+                    self.userdata.set_conv_state(username, "openChannel_csv")
+                    bot.send_message(chat_id=query.message.chat_id, text="Enter number of blocks.\nIf this channel is closed uncooperatively this is the number of blocks remote peer will have to wait before claiming funds.")
+                elif param[1] == "execute":
+                    self.userdata.set_conv_state(username, "openChannel_execute")
+                    data = self.userdata.get_open_channel_data(username)
+                    if data["address"] == "" or data["local_amount"] <= 0:
+                        self.updater.bot.send_message(chat_id=query.message.chat_id, text="Opening channel failed, Node URI and Amount are required.")
+                        self.userdata.delete_open_channel_data(username)
+                        self.userdata.set_conv_state(username, None)
+                    else:
+                        msgtext = self.LNwallet.formatChannelOpenOutput(self.userdata.get_open_channel_data(username), username)
+                        if self.otp_enabled:
+                            self.userdata.set_conv_state(username, "openChannel_otp")
+                            bot.send_message(chat_id=query.message.chat_id, text=msgtext + "\n\n<i>send me 2FA code to open or</i> /cancel_opening_channel", parse_mode=telegram.ParseMode.HTML)
+                        else:
+                            bot.send_message(chat_id=query.message.chat_id, text=msgtext, parse_mode=telegram.ParseMode.HTML)
+                            bot.send_message(chat_id=query.message.chat_id, text="Do you want to open this channel?", reply_markup=self.confirm_menu(type="opench"))
+                elif param[1] == "yes":
+                    self.executeOpeningChannel(username, query.message.chat_id)
+                elif param[1] == "no":
+                    self.cancelOpeningChannel(bot, update)
+
+            else:
+                bot.send_message(chat_id=query.message.chat_id, text="callback parameters not valid")
+
+        except Exception as e:
+            logToFile("Exception callback_handle: " + str(e))
 
     # ------------------------------- msg and image handlers
     @restricted
