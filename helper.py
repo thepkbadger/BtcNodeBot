@@ -87,7 +87,11 @@ root_dir = os.path.dirname(os.path.abspath(__file__))
 
 
 def logToFile(msg):
-    with open(root_dir + "/btcnodebot.log", "a") as file:
+    log_file = os.path.join(root_dir, "btcnodebot.log")
+    if not os.path.exists(log_file):
+        with open(log_file, 'w'):
+            pass
+    with open(log_file, "a") as file:
         file.write(datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S") + " - " + str(msg) + "\n")
 
 

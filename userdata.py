@@ -24,7 +24,11 @@ class UserData:
 
     def __init__(self, whitelist):
         self.access_whitelist_user = whitelist
-        with open(os.path.join(self.root_dir, "private", "userdata.json"), "r") as file:
+        userdata_file = os.path.join(self.root_dir, "private", "userdata.json")
+        if not os.path.exists(userdata_file):
+            with open(userdata_file, 'w') as file:
+                file.write("{}")
+        with open(userdata_file, "r") as file:
             json_data = json.load(file)
             for key, value in json_data.items():
                 self.data[key] = value
