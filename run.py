@@ -55,6 +55,10 @@ class Bot:
             logToFile(text)
             return
 
+        temp_path = os.path.join(self.root_dir, "temp")
+        if not os.path.exists(temp_path):
+            os.mkdir(temp_path)
+
         logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
         self.logger = logging.getLogger(__name__)
 
