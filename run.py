@@ -3,6 +3,7 @@ from telegram.ext import Updater, CommandHandler, MessageHandler, Filters, Callb
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 from functools import wraps
 import logging
+import signal
 import os
 import pyqrcode, pyotp
 import threading
@@ -118,6 +119,14 @@ class Bot:
         # init user data
         self.userdata = UserData(self.access_whitelist_user)
 
+        # init signal handlers
+        for s in [x for x in dir(signal) if x.startswith("SIG")]:
+            try:
+                signum = getattr(signal, s)
+                signal.signal(signum, lambda sig, frame: self.stop())
+            except (OSError, AttributeError, ValueError) as e:
+                pass
+
         # init wallet
         self.LNwallet = Wallet(self.updater.bot, self.userdata, self.config)
 
@@ -129,7 +138,8 @@ class Bot:
 
     def stop(self):
         self.updater.stop()
-        logToFile("telegram bot message listening stopped")
+        logToFile("stopped")
+        return
 
     # ------------------------------- Keyboard Menus
     def notif_menu(self, username):
@@ -259,7 +269,8 @@ class Bot:
             target=self.LNwallet.sendCoins,
             args=[self.updater.bot, chat_id, username, data["address"], data["amount"],
                   data["sat_per_byte"], data["target_conf"], code_otp
-                  ]
+                  ],
+            daemon=True
         )
         onchtxthread.start()
         self.userdata.delete_onchain_send_data(username)
@@ -271,7 +282,8 @@ class Bot:
             target=self.LNwallet.openChannel,
             args=[self.updater.bot, chat_id, username, data["address"], data["local_amount"], data["target_conf"],
                   data["sat_per_byte"], data["private"], data["min_htlc_msat"], data["remote_csv_delay"], code_otp
-                  ]
+                  ],
+            daemon=True
         )
         openchthread.start()
         self.userdata.delete_open_channel_data(username)
@@ -283,7 +295,8 @@ class Bot:
             target=self.LNwallet.closeChannel,
             args=[self.updater.bot, chat_id, username, data["chan_id"], data["target_conf"],
                   data["sat_per_byte"], code_otp
-                  ]
+                  ],
+            daemon=True
         )
         closechthread.start()
         self.userdata.delete_close_channel_data(username)
@@ -295,7 +308,8 @@ class Bot:
             raw_pay_req = invoice_data["raw_invoice"]
             paythread = threading.Thread(
                 target=self.LNwallet.payInvoice,
-                args=[raw_pay_req, self.updater.bot, chat_id, username, code_otp]
+                args=[raw_pay_req, self.updater.bot, chat_id, username, code_otp],
+                daemon=True
             )
             paythread.start()
         else:

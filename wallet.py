@@ -38,7 +38,7 @@ class Wallet:
             self.node.subscribe_transactions
         ]
         for subscription in subscriptions:
-            t = threading.Thread(target=subscription, args=[self.bot, self.userdata])
+            t = threading.Thread(target=subscription, args=[self.bot, self.userdata], daemon=True)
             self.threadList.append(t)
             t.start()
             sleep(0.1)
