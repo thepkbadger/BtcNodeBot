@@ -3,7 +3,7 @@ requests
 pyqrcode==1.2.1
 pypng
 pyotp
-pyzbar  # on linux install sudo apt-get install libzbar0
+pyzbar
 grpcio
 grpcio-tools
 googleapis-common-protos

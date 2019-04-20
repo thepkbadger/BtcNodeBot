@@ -2,7 +2,7 @@
 telegram bot for managing lightning bitcoin node
 
 ## installation
-Python 3.5+ needs to be installed. On Linux and Mac OS you will need to install some additional packages.
+Python >= 3.5 needs to be installed. On Linux and Mac OS you will need to install some additional packages.
 #### Linux
 ```
 sudo apt-get install libzbar0
@@ -35,7 +35,7 @@ You should scan QR code in OTP.png or enter OTP secret (OTP.txt) in your 2FA app
 
 - It is recommended that you protect *./private* directory with appropriate permissions, Linux:
 ```
-chmod -R 600 ./private
+chmod -R 700 ./private
 ```
 
 ## usage
