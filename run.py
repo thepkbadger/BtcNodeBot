@@ -139,7 +139,6 @@ class Bot:
     def stop(self):
         self.updater.stop()
         logToFile("stopped")
-        return
 
     # ------------------------------- Keyboard Menus
     def notif_menu(self, username):
