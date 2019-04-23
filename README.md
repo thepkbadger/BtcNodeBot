@@ -43,3 +43,22 @@ For convenience, when typing commands to your bot you can get suggestions.
 Talk to [@BotFather](https://telegram.me/botfather) and type */setcommands*, then copy contents of *list_of_commands.txt* to the chat.
 
 #### usage examples
+- pay LN invoice
+
+![](examples/pay_invoice.gif)
+
+- open LN channel
+
+![](examples/open_ch.gif)
+
+- close LN channel
+
+![](examples/close_ch.gif)
+
+- On-Chain transaction
+
+![](examples/onchain_send.gif)
+
+- Settings
+
+![](examples/settings.gif)
