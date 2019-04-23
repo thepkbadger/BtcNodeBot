@@ -46,10 +46,20 @@ class Bot:
     access_whitelist_user = []
 
     def __init__(self):
+        self.updater = None
+
+        # init signal handlers
+        for s in [x for x in dir(signal) if x.startswith("SIG")]:
+            try:
+                signum = getattr(signal, s)
+                signal.signal(signum, lambda sig, frame: self.stop())
+            except (OSError, AttributeError, ValueError) as e:
+                pass
+
         self.config = parse_config(self.config_file_path)
         self.otp_enabled = self.config["bototp"]
         self.access_whitelist_user = self.config["botwhitelist"]
-        self.updater = None
+
         if self.config["bottoken"] == "":
             text = "No bot token found in btcnodebot.conf. Please use @BotFather to create telegram bot and acquire token."
             print(text)
@@ -119,14 +129,6 @@ class Bot:
         # init user data
         self.userdata = UserData(self.access_whitelist_user)
 
-        # init signal handlers
-        for s in [x for x in dir(signal) if x.startswith("SIG")]:
-            try:
-                signum = getattr(signal, s)
-                signal.signal(signum, lambda sig, frame: self.stop())
-            except (OSError, AttributeError, ValueError) as e:
-                pass
-
         # init wallet
         self.LNwallet = Wallet(self.updater.bot, self.userdata, self.config)
 
@@ -137,7 +139,8 @@ class Bot:
         logToFile("telegram bot online")
 
     def stop(self):
-        self.updater.stop()
+        if self.updater is not None:
+            self.updater.stop()
         logToFile("stopped")
 
     # ------------------------------- Keyboard Menus
