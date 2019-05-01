@@ -364,44 +364,55 @@ class LocalNode:
                     text = ""
                     if "type" in json_out and json_out["type"] == "OPEN_CHANNEL":
                         channel_data = json_out["open_channel"]
-                        text = "<b>New channel opened</b>\n"
+                        initiator = "by us can now be used" if channel_data["initiator"] else "by remote peer"
+                        text = "<b>New channel opened "+initiator+"</b>\n"
+                        node_name = channel_data["remote_pubkey"]
+
                         info_data, error_info = self.get_ln_node_info(pub_key=channel_data["remote_pubkey"])
-                        if info_data is None:
-                            text += channel_data["remote_pubkey"] + "\n"
-                        else:
-                            text += info_data["node"]["alias"] + "\n"
+                        if info_data is not None and info_data["node"]["alias"] != "":
+                            node_name = info_data["node"]["alias"]
+
+                        text += node_name + "\n"
                         text += "Capacity: {0}\n"
                         text += "Local Balance: {1}\n"
                         text += "Remote Balance: {2}\n"
                         text += "Time Lock: " + str(channel_data["csv_delay"]) + "\n"
                         private = "yes" if channel_data["private"] else "no"
-                        text += "Private: " + private
-                        fund_txid = json_out["channel_point"][:json_out["channel_point"].find(':')]
+                        text += "Private: " + private + "\n"
+                        fund_txid = channel_data["channel_point"][:channel_data["channel_point"].find(':')]
                         text += "Txid: <a href='{3}" + fund_txid + "'>" + fund_txid[:8] + "..." + fund_txid[-8:] + "</a>\n"
 
                     elif "type" in json_out and json_out["type"] == "CLOSED_CHANNEL":
                         channel_data = json_out["closed_channel"]
                         text = "<b>Channel closed</b>\n"
+                        node_name = channel_data["remote_pubkey"]
+
                         info_data, error_info = self.get_ln_node_info(pub_key=channel_data["remote_pubkey"])
-                        if info_data is None:
-                            text += channel_data["remote_pubkey"] + "\n"
-                        else:
-                            text += info_data["node"]["alias"] + "\n"
+                        if info_data is not None and info_data["node"]["alias"] != "":
+                            node_name = info_data["node"]["alias"]
+
+                        text += node_name + "\n"
                         text += "Capacity: {0}\n"
+                        text += "Settled Balance: {4}\n"
                         text += "Txid: <a href='{3}" + channel_data["closing_tx_hash"] + "'>"+channel_data["closing_tx_hash"][:8]+"..."+channel_data["closing_tx_hash"][-8:]+"</a>\n"
-                        text += "Closure Type: " + str(channel_data["close_type"])
+                        text += "Closure Type: " + str(channel_data["close_type"]).lower()
 
                     if text != "":
+                        local_balance = int(channel_data["local_balance"]) if "local_balance" in channel_data else 0
+                        remote_balance = int(channel_data["remote_balance"]) if "remote_balance" in channel_data else 0
+                        settled_balance = int(channel_data["settled_balance"]) if "settled_balance" in channel_data else 0
+
                         for username in userdata.get_usernames():
                             chat_id = userdata.get_chat_id(username)
-                            if chat_id is not None:
+                            if chat_id is not None and userdata.get_notifications_state(username)["chevents"] is True:
                                 unit = userdata.get_selected_unit(username)
                                 explorerLink = userdata.get_default_explorer(username)
                                 text = text.format(
                                     formatAmount(int(channel_data["capacity"]), unit),
-                                    formatAmount(int(channel_data["local_balance"]), unit),
-                                    formatAmount(int(channel_data["remote_balance"]), unit),
-                                    explorerLink
+                                    formatAmount(local_balance, unit),
+                                    formatAmount(remote_balance, unit),
+                                    explorerLink,
+                                    formatAmount(settled_balance, unit)
                                 )
                                 bot.send_message(chat_id=chat_id, text=text, parse_mode=telegram.ParseMode.HTML, disable_web_page_preview=True)
 

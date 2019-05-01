@@ -9,7 +9,7 @@ class UserData:
     default_data = {
         "wallet": {
             "invoice": None,
-            "notifications": {"node": True, "transactions": True, "invoices": True},
+            "notifications": {"node": True, "transactions": True, "invoices": True, "chevents": False},
             "default_explorer_tx": "https://blockstream.info/tx/",
             "selected_unit": "sats",
             "onchain_send_data": {"amount": 0, "address": "", "sat_per_byte": -1, "target_conf": -1},

@@ -149,10 +149,12 @@ class Bot:
         state1 = "  ✔" if notif_state["node"] else ""
         state2 = "  ✔" if notif_state["transactions"] else ""
         state3 = "  ✔" if notif_state["invoices"] else ""
+        state4 = "  ✔" if notif_state["chevents"] else ""
         button_list = [
             InlineKeyboardButton("Node status (offline, not synced)"+state1, callback_data="notif_node"),
             InlineKeyboardButton("On-Chain transactions"+state2, callback_data="notif_transactions"),
-            InlineKeyboardButton("Received LN payments"+state3, callback_data="notif_invoices")
+            InlineKeyboardButton("Received LN payments"+state3, callback_data="notif_invoices"),
+            InlineKeyboardButton("Channel Events (new opened, closed)"+state4, callback_data="notif_chevents")
         ]
         notif_menu = build_menu(button_list, n_cols=1)
         return InlineKeyboardMarkup(notif_menu)
