@@ -11,6 +11,7 @@ class UserData:
             "invoice": None,
             "notifications": {"node": True, "transactions": True, "invoices": True, "chevents": False},
             "default_explorer_tx": "https://blockstream.info/tx/",
+            "default_node_search_link": "https://1ml.com/node/",
             "selected_unit": "sats",
             "onchain_send_data": {"amount": 0, "address": "", "sat_per_byte": -1, "target_conf": -1},
             "add_invoice_data": {"amount": 0, "expiry": 3600, "description": ""},
@@ -99,6 +100,13 @@ class UserData:
 
     def get_default_explorer(self, username):
         return self.data[username]["wallet"]["default_explorer_tx"]
+
+    def set_default_node_search_link(self, username, search_link):
+        self.data[username]["wallet"]["default_node_search_link"] = search_link
+        self.save_userdata()
+
+    def get_default_node_search_link(self, username):
+        return self.data[username]["wallet"]["default_node_search_link"]
 
     def set_pagination(self, username, page):
         self.data[username]["pagination_number"] = page

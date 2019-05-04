@@ -497,9 +497,9 @@ class Bot:
                         msgtext = self.LNwallet.formatChannelCloseOutput(channel_data, closing_data, username)
                         if self.otp_enabled:
                             self.userdata.set_conv_state(username, "closeChannel_otp")
-                            bot.send_message(chat_id=query.message.chat_id, text=msgtext + "\n\n<i>send me 2FA code to close or</i> /cancel_channel_closing", parse_mode=telegram.ParseMode.HTML)
+                            bot.send_message(chat_id=query.message.chat_id, text=msgtext + "\n\n<i>send me 2FA code to close or</i> /cancel_channel_closing", parse_mode=telegram.ParseMode.HTML, disable_web_page_preview=True)
                         else:
-                            bot.send_message(chat_id=query.message.chat_id, text=msgtext, parse_mode=telegram.ParseMode.HTML)
+                            bot.send_message(chat_id=query.message.chat_id, text=msgtext, parse_mode=telegram.ParseMode.HTML, disable_web_page_preview=True)
                             bot.send_message(chat_id=query.message.chat_id, text="Do you want to close this channel?", reply_markup=self.confirm_menu(type="closech"))
                 elif param[1] == "yes":
                     self.executeClosingChannel(username, query.message.chat_id)
@@ -544,9 +544,9 @@ class Bot:
                         msgtext = self.LNwallet.formatChannelOpenOutput(self.userdata.get_open_channel_data(username), username)
                         if self.otp_enabled:
                             self.userdata.set_conv_state(username, "openChannel_otp")
-                            bot.send_message(chat_id=query.message.chat_id, text=msgtext + "\n\n<i>send me 2FA code to open or</i> /cancel_opening_channel", parse_mode=telegram.ParseMode.HTML)
+                            bot.send_message(chat_id=query.message.chat_id, text=msgtext + "\n\n<i>send me 2FA code to open or</i> /cancel_opening_channel", parse_mode=telegram.ParseMode.HTML, disable_web_page_preview=True)
                         else:
-                            bot.send_message(chat_id=query.message.chat_id, text=msgtext, parse_mode=telegram.ParseMode.HTML)
+                            bot.send_message(chat_id=query.message.chat_id, text=msgtext, parse_mode=telegram.ParseMode.HTML, disable_web_page_preview=True)
                             bot.send_message(chat_id=query.message.chat_id, text="Do you want to open this channel?", reply_markup=self.confirm_menu(type="opench"))
                 elif param[1] == "yes":
                     self.executeOpeningChannel(username, query.message.chat_id)
@@ -753,9 +753,9 @@ class Bot:
                 self.userdata.set_wallet_payinvoice(msg.from_user.username, value)
                 if self.otp_enabled:
                     self.userdata.set_conv_state(username, "payinvoice_otp")
-                    bot.send_message(chat_id=msg.chat_id, text=msgtext + "\n<i>send me 2FA code for payment or</i> /cancel_payment", parse_mode=telegram.ParseMode.HTML)
+                    bot.send_message(chat_id=msg.chat_id, text=msgtext + "\n<i>send me 2FA code for payment or</i> /cancel_payment", parse_mode=telegram.ParseMode.HTML, disable_web_page_preview=True)
                 else:
-                    bot.send_message(chat_id=msg.chat_id, text=msgtext, parse_mode=telegram.ParseMode.HTML)
+                    bot.send_message(chat_id=msg.chat_id, text=msgtext, parse_mode=telegram.ParseMode.HTML, disable_web_page_preview=True)
                     bot.send_message(chat_id=msg.chat_id, text="Do you want to pay this invoice?", reply_markup=self.confirm_menu())
                 return
 
@@ -866,9 +866,9 @@ class Bot:
             self.userdata.set_wallet_payinvoice(msg.from_user.username, value)
             if self.otp_enabled:
                 self.userdata.set_conv_state(msg.from_user.username, "payinvoice_otp")
-                bot.send_message(chat_id=msg.chat_id, text=msgtext + "\n<i>send me 2FA code for payment or</i> /cancel_payment", parse_mode=telegram.ParseMode.HTML)
+                bot.send_message(chat_id=msg.chat_id, text=msgtext + "\n<i>send me 2FA code for payment or</i> /cancel_payment", parse_mode=telegram.ParseMode.HTML, disable_web_page_preview=True)
             else:
-                bot.send_message(chat_id=msg.chat_id, text=msgtext, parse_mode=telegram.ParseMode.HTML)
+                bot.send_message(chat_id=msg.chat_id, text=msgtext, parse_mode=telegram.ParseMode.HTML, disable_web_page_preview=True)
                 bot.send_message(chat_id=msg.chat_id, text="Do you want to pay this invoice?", reply_markup=self.confirm_menu())
         else:
             bot.send_message(chat_id=msg.chat_id, text="I'm sorry " + value + ".🙀")

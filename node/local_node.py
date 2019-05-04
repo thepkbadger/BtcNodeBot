@@ -384,6 +384,10 @@ class LocalNode:
                     text = ""
                     if "type" in json_out and json_out["type"] == "OPEN_CHANNEL":
                         channel_data = json_out["open_channel"]
+                        total = int(channel_data["local_balance"]) + int(channel_data["remote_balance"])
+                        channel_data["local_balance_pct"] = int(round((int(channel_data["local_balance"]) / total) * 100))
+                        channel_data["remote_balance_pct"] = int(round((int(channel_data["remote_balance"]) / total) * 100))
+
                         initiator = "by us can now be used" if channel_data["initiator"] else "by remote peer"
                         text = "<b>New channel opened "+initiator+"</b>\n"
                         node_name = channel_data["remote_pubkey"]
@@ -392,10 +396,10 @@ class LocalNode:
                         if info_data is not None and info_data["node"]["alias"] != "":
                             node_name = info_data["node"]["alias"]
 
-                        text += node_name + "\n"
+                        text += "<a href='{5}" + channel_data["remote_pubkey"] + "'>" + node_name + "</a>\n"
                         text += "Capacity: {0}\n"
-                        text += "Local Balance: {1}\n"
-                        text += "Remote Balance: {2}\n"
+                        text += "Local Balance: {1} ("+str(channel_data["local_balance_pct"])+"%)\n"
+                        text += "Remote Balance: {2} ("+str(channel_data["remote_balance_pct"])+"%)\n"
                         text += "Time Lock: " + str(channel_data["csv_delay"]) + "\n"
                         private = "yes" if channel_data["private"] else "no"
                         text += "Private: " + private + "\n"
@@ -411,7 +415,7 @@ class LocalNode:
                         if info_data is not None and info_data["node"]["alias"] != "":
                             node_name = info_data["node"]["alias"]
 
-                        text += node_name + "\n"
+                        text += "<a href='{5}" + channel_data["remote_pubkey"] + "'>" + node_name + "</a>\n"
                         text += "Capacity: {0}\n"
                         text += "Settled Balance: {4}\n"
                         text += "Txid: <a href='{3}" + channel_data["closing_tx_hash"] + "'>"+channel_data["closing_tx_hash"][:8]+"..."+channel_data["closing_tx_hash"][-8:]+"</a>\n"
@@ -427,12 +431,14 @@ class LocalNode:
                             if chat_id is not None and self.userdata.get_notifications_state(username)["chevents"] is True:
                                 unit = self.userdata.get_selected_unit(username)
                                 explorerLink = self.userdata.get_default_explorer(username)
+                                searchEngineLink = self.userdata.get_default_node_search_link(username)
                                 text = text.format(
                                     formatAmount(int(channel_data["capacity"]), unit),
                                     formatAmount(local_balance, unit),
                                     formatAmount(remote_balance, unit),
                                     explorerLink,
-                                    formatAmount(settled_balance, unit)
+                                    formatAmount(settled_balance, unit),
+                                    searchEngineLink
                                 )
                                 self.bot.send_message(chat_id=chat_id, text=text, parse_mode=telegram.ParseMode.HTML, disable_web_page_preview=True)
 

@@ -20,6 +20,10 @@ class Wallet:
         "blockcypher.com": "https://live.blockcypher.com/btc/tx/"
     }
 
+    lnNodeSearchLink = {
+        "1ml.com": "https://1ml.com/node/"
+    }
+
     def __init__(self, bot, userdata, config):
         self.bot = bot
         self.enable_otp = config["bototp"]
@@ -30,6 +34,9 @@ class Wallet:
 
     def get_available_explorers(self):
         return self.explorerTxLink
+
+    def get_ln_node_search_engines(self):
+        return self.lnNodeSearchLink
 
     def subscribe_notifications(self):
         subscriptions = [
@@ -88,8 +95,10 @@ class Wallet:
 
         to = data["destination_node"]["node"]["alias"] if data["destination_node"] else data["decoded"]["destination"]
         unit = self.userdata.get_selected_unit(username)
+        searchEngineLink = self.userdata.get_default_node_search_link(username)
+
         return "<b>Lightning invoice: </b>" + lb_symbol \
-            + "To: " + to + lb_symbol \
+            + "To: <a href='" + searchEngineLink + data["decoded"]["destination"] + "'>" + to + "</a>" + lb_symbol \
             + "Amount: " + formatAmount(int(data["decoded"]["num_satoshis"]), unit) + lb_symbol \
             + "Expiration: " + d_time_expiration.strftime('%c %Z') + lb_symbol \
             + "Description: " + data["decoded"]["description"] + lb_symbol
@@ -182,6 +191,11 @@ class Wallet:
                         ch["alias"] = ch["remote_pubkey"][:12]
                     else:
                         ch["alias"] = info_data["node"]["alias"]
+
+                    # add calculated ch balance pct
+                    total = int(ch["local_balance"]) + int(ch["remote_balance"])
+                    ch["local_balance_pct"] = int(round((int(ch["local_balance"]) / total) * 100))
+                    ch["remote_balance_pct"] = int(round((int(ch["remote_balance"]) / total) * 100))
                     return ch, None
             return None, "channel not found."
         except Exception as e:
@@ -368,12 +382,13 @@ class Wallet:
         fund_txid = data["channel_point"][:data["channel_point"].find(':')]
         explorerLink = self.userdata.get_default_explorer(username)
         funding_link = "<a href='" + explorerLink + fund_txid + "'>" + fund_txid[:8] + "..." + fund_txid[-8:] + "</a>"
+        searchEngineLink = self.userdata.get_default_node_search_link(username)
 
         text = "<b>" + data["alias"] + "</b>" + active_text + lb_symbol \
-            + data["remote_pubkey"] + lb_symbol \
+            + "<a href='" + searchEngineLink + data["remote_pubkey"] + "'>" + data["remote_pubkey"] + "</a>" + lb_symbol \
             + "Capacity: {0}" + lb_symbol \
-            + "Local Balance: {1}" + lb_symbol \
-            + "Remote Balance: {2}" + lb_symbol \
+            + "Local Balance: {1} ("+str(data["local_balance_pct"])+"%)" + lb_symbol \
+            + "Remote Balance: {2} ("+str(data["remote_balance_pct"])+"%)" + lb_symbol \
             + "Time Lock: " + str(data["csv_delay"]) + lb_symbol \
             + "Number of Updates: " + data["num_updates"] + lb_symbol \
             + "Total Sent: {3}" + lb_symbol \
@@ -398,9 +413,11 @@ class Wallet:
         fee = data["sat_per_byte"] if data["sat_per_byte"] > 0 else "/"
         csv_delay = data["remote_csv_delay"] if data["remote_csv_delay"] > 0 else "/"
         private = "yes" if data["private"] else "no"
+        uri = data["address"].split("@")
+        searchEngineLink = self.userdata.get_default_node_search_link(username)
 
         text = "<b>New channel</b>" + lb_symbol \
-            + data["address"] + lb_symbol \
+            + "<a href='" + searchEngineLink + uri[0] + "'>" + data["address"] + "</a>" + lb_symbol \
             + "Amount: {0}" + lb_symbol \
             + "Min HTLC: " + str(data["min_htlc_msat"]) + " msats" + lb_symbol \
             + "Time Lock: " + str(csv_delay) + lb_symbol \
@@ -439,12 +456,13 @@ class Wallet:
         active_text = "" if data["active"] else "  🔴 <i>offline</i>"
         target_conf = closing_data["target_conf"] if closing_data["target_conf"] > 0 else "/"
         fee = closing_data["sat_per_byte"] if closing_data["sat_per_byte"] > 0 else "/"
+        searchEngineLink = self.userdata.get_default_node_search_link(username)
 
         text = "<b>" + data["alias"] + "</b>" + active_text + lb_symbol \
-               + data["remote_pubkey"] + lb_symbol \
+               + "<a href='" + searchEngineLink + data["remote_pubkey"] + "'>" + data["remote_pubkey"] + "</a>" + lb_symbol \
                + "Capacity: {0}" + lb_symbol \
-               + "Local Balance: {1}" + lb_symbol \
-               + "Remote Balance: {2}" + lb_symbol + lb_symbol \
+               + "Local Balance: {1} ("+str(data["local_balance_pct"])+"%)" + lb_symbol \
+               + "Remote Balance: {2} ("+str(data["remote_balance_pct"])+"%)" + lb_symbol + lb_symbol \
                + "Commitment transaction: " + lb_symbol \
                + "Target Conf: " + str(target_conf) + lb_symbol \
                + "Fees(sat/byte): " + str(fee)
