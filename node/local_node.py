@@ -15,7 +15,9 @@ class LocalNode:
 
     root_path = os.path.dirname(os.path.abspath(__file__))
 
-    def __init__(self, config):
+    def __init__(self, config, bot, userdata):
+        self.bot = bot
+        self.userdata = userdata
         # init ln
         self.ln_host = config["lnhost"]
         self.ln_port = config["lnport"]
@@ -24,14 +26,16 @@ class LocalNode:
         self.ln_cert_path = config["lncertpath"]
         self.ln_admin_macaroon_path = config["lnadminmacaroonpath"]
 
-        channel = self.init_ln_connection()
-        if channel is not None:
-            self.stub = lnrpc.LightningStub(channel)
-
-        self.nodeOnline = False
-        self.check_node_online()
         self.sub_sleep_retry = 60
         self.sub_sleep_offline = 30
+        self.node_watcher_sleep = 1*60
+        self.not_synced_count = -1
+
+        self.stub = None
+        self.nodeOnline = True
+        self.nodeOnline_prev = True
+        response = self.check_node_online(init=True)
+        self.node_status_output(response)
 
     def init_ln_connection(self):
         try:
@@ -69,28 +73,35 @@ class LocalNode:
             # combine the cert credentials and the macaroon auth credentials
             combined_creds = grpc.composite_channel_credentials(cert_creds, auth_creds)
 
-            return grpc.secure_channel(str(self.ln_host) + ":" + str(self.ln_port), combined_creds)
+            channel = grpc.secure_channel(str(self.ln_host) + ":" + str(self.ln_port), combined_creds)
+            self.stub = lnrpc.LightningStub(channel)
         except Exception as e:
             logToFile("Exception init_ln_connection: " + str(e))
-            return None
 
-    def check_node_online(self, wait_on_not_synced=60):
+    def check_node_online(self, init=False, wait_on_not_synced=-1):
         try:
             first = True
             while True:
-                lninfo, err_ln_getinfo = self.get_ln_info()
+                if self.nodeOnline is False or init is True:
+                    self.init_ln_connection()  # initialize gRPC
+
+                lninfo, err_ln_getinfo = self.get_ln_info(log_enabled=False)
+                self.nodeOnline_prev = self.nodeOnline
 
                 if err_ln_getinfo is not None:
                     self.nodeOnline = False
+                    self.not_synced_count = -1
                     return {"online": False, "msg": err_ln_getinfo}
                 else:
-                    if first and lninfo["synced_to_chain"] is False:
+                    if first and lninfo["synced_to_chain"] is False and wait_on_not_synced > 0:
                         first = False
                         # wait and check again, to prevent false positives on slow hardware
                         # lightning node 1 block behind, when checking
                         sleep(wait_on_not_synced)
                         continue
                     self.nodeOnline = True
+                    if lninfo["synced_to_chain"] is True:
+                        self.not_synced_count = -1
                     return {
                         "online": True,
                         "block_height": lninfo["block_height"],
@@ -101,27 +112,33 @@ class LocalNode:
             text = str(e)
             logToFile("Exception check_node_online: " + text)
             self.nodeOnline = False
+            self.not_synced_count = -1
             return {"online": None, "msg": "Exception: " + text}
 
-    def subscribe_node_watcher(self, bot, userdata, time_delta=10*60):
+    def node_status_output(self, response):
+        text = ""
+        if response["online"] is False and self.nodeOnline_prev is True:
+            text = "Lightning node is offline!"
+        elif response["online"] is True:
+            if response["synced"] is False:
+                self.not_synced_count = 0 if self.not_synced_count == 4 else self.not_synced_count + 1
+                if self.not_synced_count == 0:
+                    text = "Lightning node not synced!\nNode height: " + str(response["block_height"])
+            elif self.nodeOnline_prev is False:
+                text = "Lightning node is online."
+
+        if text != "":
+            for username in self.userdata.get_usernames():
+                chat_id = self.userdata.get_chat_id(username)
+                if chat_id is not None and self.userdata.get_notifications_state(username)["node"] is True:
+                    self.bot.send_message(chat_id=chat_id, text=text, parse_mode=telegram.ParseMode.HTML)
+
+    def subscribe_node_watcher(self):
         try:
             while True:
-                response = self.check_node_online()
-                text = ""
-                if response["online"] is False:
-                    text = "Lightning node is offline!"
-                elif response["online"] is None:
-                    text = "Cannot check lightning node status, there was error (check logs)."
-                else:
-                    if response["synced"] is False:
-                        text = "Lightning node not synced!\nNode height: "+str(response["block_height"])
-
-                if text != "":
-                    for username in userdata.get_usernames():
-                        if userdata.get_chat_id(username) is not None and userdata.get_notifications_state(username)["node"] is True:
-                            chat_id = userdata.get_chat_id(username)
-                            bot.send_message(chat_id=chat_id, text=text, parse_mode=telegram.ParseMode.HTML)
-                sleep(time_delta)
+                response = self.check_node_online(wait_on_not_synced=60)
+                self.node_status_output(response)
+                sleep(self.node_watcher_sleep)
 
         except Exception as e:
             text = "Exception LiveFeed LocalNode subscribe node watcher: " + str(e)
@@ -154,7 +171,7 @@ class LocalNode:
             logToFile("Exception get_ln_node_info: " + text)
             return None, text
 
-    def get_ln_info(self):
+    def get_ln_info(self, log_enabled=True):
         try:
             response = self.stub.GetInfo(ln.GetInfoRequest())
             return MessageToDict(response, including_default_value_fields=True), None
@@ -163,7 +180,8 @@ class LocalNode:
                 text = str(e._state.details)
             else:
                 text = str(e)
-            logToFile("Exception get_ln_info: " + text)
+            if log_enabled:
+                logToFile("Exception get_ln_info: " + text)
             return None, text
 
     def get_ln_onchain_address(self, addr_type="p2wkh"):
@@ -321,7 +339,7 @@ class LocalNode:
             logToFile("Exception get_balance_report: " + text)
             return None, text
 
-    def subscribe_invoices(self, bot, userdata):
+    def subscribe_invoices(self):
 
         while True:
             if not self.nodeOnline:
@@ -338,19 +356,21 @@ class LocalNode:
                         text += "Amount: {0}\n"
                         if "memo" in json_out and json_out["memo"] != "":
                             text += "Description: " + json_out["memo"]
+
                         # send to each user that have chat_id in userdata
-                        for username in userdata.get_usernames():
-                            chat_id = userdata.get_chat_id(username)
-                            if chat_id is not None and userdata.get_notifications_state(username)["invoices"] is True:
-                                unit = userdata.get_selected_unit(username)
+                        for username in self.userdata.get_usernames():
+                            chat_id = self.userdata.get_chat_id(username)
+                            if chat_id is not None and self.userdata.get_notifications_state(username)["invoices"] is True:
+                                unit = self.userdata.get_selected_unit(username)
                                 text = text.format(formatAmount(int(json_out["amt_paid_sat"]), unit))
-                                bot.send_message(chat_id=chat_id, text=text, parse_mode=telegram.ParseMode.HTML)
+                                self.bot.send_message(chat_id=chat_id, text=text, parse_mode=telegram.ParseMode.HTML)
 
             except Exception as e:
-                print("LiveFeed LocalNode subscribe invoices: connection lost, will retry after " + str(self.sub_sleep_retry) + " seconds")
+                msg = "LiveFeed LocalNode subscribe invoices: connection lost, will retry after " + str(self.sub_sleep_retry) + " seconds"
+                logToFile(msg)
                 sleep(self.sub_sleep_retry)
 
-    def subscribe_channel_events(self, bot, userdata):
+    def subscribe_channel_events(self):
 
         while True:
             if not self.nodeOnline:
@@ -402,11 +422,11 @@ class LocalNode:
                         remote_balance = int(channel_data["remote_balance"]) if "remote_balance" in channel_data else 0
                         settled_balance = int(channel_data["settled_balance"]) if "settled_balance" in channel_data else 0
 
-                        for username in userdata.get_usernames():
-                            chat_id = userdata.get_chat_id(username)
-                            if chat_id is not None and userdata.get_notifications_state(username)["chevents"] is True:
-                                unit = userdata.get_selected_unit(username)
-                                explorerLink = userdata.get_default_explorer(username)
+                        for username in self.userdata.get_usernames():
+                            chat_id = self.userdata.get_chat_id(username)
+                            if chat_id is not None and self.userdata.get_notifications_state(username)["chevents"] is True:
+                                unit = self.userdata.get_selected_unit(username)
+                                explorerLink = self.userdata.get_default_explorer(username)
                                 text = text.format(
                                     formatAmount(int(channel_data["capacity"]), unit),
                                     formatAmount(local_balance, unit),
@@ -414,13 +434,14 @@ class LocalNode:
                                     explorerLink,
                                     formatAmount(settled_balance, unit)
                                 )
-                                bot.send_message(chat_id=chat_id, text=text, parse_mode=telegram.ParseMode.HTML, disable_web_page_preview=True)
+                                self.bot.send_message(chat_id=chat_id, text=text, parse_mode=telegram.ParseMode.HTML, disable_web_page_preview=True)
 
             except Exception as e:
-                print("LiveFeed LocalNode subscribe channel events: connection lost, will retry after " + str(self.sub_sleep_retry) + " seconds")
+                msg = "LiveFeed LocalNode subscribe channel events: connection lost, will retry after " + str(self.sub_sleep_retry) + " seconds"
+                logToFile(msg)
                 sleep(self.sub_sleep_retry)
 
-    def subscribe_transactions(self, bot, userdata):
+    def subscribe_transactions(self):
 
         while True:
             if not self.nodeOnline:
@@ -464,14 +485,15 @@ class LocalNode:
                     text += "Txid: <a href='{2}" + json_out["tx_hash"] + "'>" + json_out["tx_hash"][:8] + "..."+ json_out["tx_hash"][-8:] +"</a>\n"
 
                     # send to each user that have chat_id in userdata
-                    for username in userdata.get_usernames():
-                        chat_id = userdata.get_chat_id(username)
-                        if chat_id is not None and userdata.get_notifications_state(username)["transactions"] is True:
-                            unit = userdata.get_selected_unit(username)
-                            explorerLink = userdata.get_default_explorer(username)
+                    for username in self.userdata.get_usernames():
+                        chat_id = self.userdata.get_chat_id(username)
+                        if chat_id is not None and self.userdata.get_notifications_state(username)["transactions"] is True:
+                            unit = self.userdata.get_selected_unit(username)
+                            explorerLink = self.userdata.get_default_explorer(username)
                             text = text.format(formatAmount(amount, unit), formatAmount(total_fees, unit), explorerLink)
-                            bot.send_message(chat_id=chat_id, text=text, parse_mode=telegram.ParseMode.HTML, disable_web_page_preview=True)
+                            self.bot.send_message(chat_id=chat_id, text=text, parse_mode=telegram.ParseMode.HTML, disable_web_page_preview=True)
 
             except Exception as e:
-                print("LiveFeed LocalNode subscribe transactions: connection lost, will retry after " + str(self.sub_sleep_retry) + " seconds")
+                msg = "LiveFeed LocalNode subscribe transactions: connection lost, will retry after " + str(self.sub_sleep_retry) + " seconds"
+                logToFile(msg)
                 sleep(self.sub_sleep_retry)

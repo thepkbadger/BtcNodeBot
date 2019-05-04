@@ -25,7 +25,7 @@ class Wallet:
         self.enable_otp = config["bototp"]
         self.userdata = userdata
         self.threadList = []
-        self.node = LocalNode(config=config)
+        self.node = LocalNode(config=config, bot=bot, userdata=userdata)
         self.subscribe_notifications()
 
     def get_available_explorers(self):
@@ -39,7 +39,7 @@ class Wallet:
             self.node.subscribe_channel_events
         ]
         for subscription in subscriptions:
-            t = threading.Thread(target=subscription, args=[self.bot, self.userdata], daemon=True)
+            t = threading.Thread(target=subscription, daemon=True)
             self.threadList.append(t)
             t.start()
             sleep(0.1)
