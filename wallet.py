@@ -93,7 +93,10 @@ class Wallet:
         expiry = int(data["decoded"]["expiry"])
         d_time_expiration = d_time + timedelta(seconds=expiry)
 
-        to = data["destination_node"]["node"]["alias"] if data["destination_node"] else data["decoded"]["destination"]
+        if data["destination_node"] and data["destination_node"]["node"]["alias"] != "":
+            to = data["destination_node"]["node"]["alias"]
+        else:
+            to = data["decoded"]["destination"]
         unit = self.userdata.get_selected_unit(username)
         searchEngineLink = self.userdata.get_default_node_search_link(username)
 
