@@ -10,7 +10,7 @@ class UserData:
     default_data = {
         "wallet": {
             "invoice": None,
-            "notifications": {"node": True, "transactions": True, "invoices": True, "chevents": False},
+            "notifications": {"node": True, "transactions": True, "invoices": True, "chevents": True},
             "backups": {"chatscb": True, "last_scb_backup_msg_id": None},
             "default_explorer_tx": "https://blockstream.info/tx/",
             "default_node_search_link": "https://1ml.com/node/",
