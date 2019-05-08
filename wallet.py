@@ -329,7 +329,8 @@ class Wallet:
                         "effective_inbound_capacity": 0,
                         "outbound_capacity": 0,
                         "inbound_capacity": 0,
-                        "inactive_aliases": []
+                        "inactive_aliases": [],
+                        "inactive_pubkeys": []
                     }
                 }
                 num_active = 0
@@ -341,9 +342,11 @@ class Wallet:
                         num_active += 1
                         balance["channels"]["effective_outbound_capacity"] += int(channel["local_balance"])
                         balance["channels"]["effective_inbound_capacity"] += int(channel["remote_balance"])
-                    else:
+
+                    elif channel["remote_pubkey"] not in balance["channels"]["inactive_pubkeys"]:
+                        balance["channels"]["inactive_pubkeys"].append(channel["remote_pubkey"])
                         info_data, error_info = self.node.get_ln_node_info(pub_key=channel["remote_pubkey"])
-                        if info_data is None:
+                        if info_data is None or info_data["node"]["alias"] == "":
                             balance["channels"]["inactive_aliases"].append(channel["remote_pubkey"][:12])
                         else:
                             balance["channels"]["inactive_aliases"].append(info_data["node"]["alias"])
@@ -370,13 +373,18 @@ class Wallet:
             + "Remote: {4}"
 
         if len(data["channels"]["inactive_aliases"]) > 0:
+            searchEngineLink = self.userdata.get_default_node_search_link(username)
+            inactive_links = []
+            for idx, alias in enumerate(data["channels"]["inactive_aliases"]):
+                inactive_links.append("<a href='" + searchEngineLink + data["channels"]["inactive_pubkeys"][idx] + "'>" + alias + "</a>")
+
             args.append(int(data["channels"]["effective_outbound_capacity"]))
             args.append(int(data["channels"]["effective_inbound_capacity"]))
             text += lb_symbol \
                 + "Effective Local: {5}" + lb_symbol \
                 + "Effective Remote: {6}" + lb_symbol \
-                + "<i>--Inactive channels</i>" + lb_symbol \
-                + ", ".join(data["channels"]["inactive_aliases"])
+                + "<i>--Inactive remote nodes</i>" + lb_symbol \
+                + ", ".join(inactive_links)
 
         unit = self.userdata.get_selected_unit(username)
         for idx, arg in enumerate(args):
