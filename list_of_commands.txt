@@ -1,11 +1,12 @@
-bitcoin_unit - Select Bitcoin unit
-block_explorer - Select Block Explorer
-notifications - Toggle notifications on/off
-backups - Enable/disable in chat backups
-node_uri - Get node URI (publickey@host)
-onchain_addr - Get on-chain bech32 or compatibility address
-onchain_send - Send on-chain transaction
 wallet_balance - Get wallet balance
 receive - Create lightning invoice
 list_channels - List opened LN channels
 open_channel - Open new LN channel
+onchain_addr - Get on-chain address
+onchain_send - Send on-chain transaction
+node_uri - Get node URI (publickey@host)
+bitcoin_unit - Select Bitcoin unit
+block_explorer - Select Block Explorer
+notifications - Toggle notifications on/off
+backups - Enable/disable in-chat backups
+generate_backup - Get multi-channel backup

@@ -14,6 +14,7 @@ import re
 from pyzbar.pyzbar import decode
 from PIL import Image
 from userdata import UserData
+from base64 import b64decode
 
 
 def restricted(func):
@@ -95,6 +96,8 @@ class Bot:
         self.dispatcher.add_handler(notif_handler)
         backup_handler = CommandHandler('backups', self.backups_toggle)
         self.dispatcher.add_handler(backup_handler)
+        generate_backup_handler = CommandHandler('generate_backup', self.generate_backup)
+        self.dispatcher.add_handler(generate_backup_handler)
         walletCancelPayHandler = CommandHandler('cancel_payment', self.cancelPayment)
         self.dispatcher.add_handler(walletCancelPayHandler)
         walletOnchainAddressHandler = CommandHandler('onchain_addr', self.walletOnchainAddress)
@@ -919,8 +922,29 @@ class Bot:
     @restricted
     def backups_toggle(self, bot, update):
         msg = update["message"]
-        text = "Enable or disable in chat backups. Backups are sent as a file to chat. Old backup messages will be deleted if sent less than 48h ago."
+        text = "Enable or disable in-chat backups. Backups are sent as a file to chat each time channel is opened or closed." \
+               + " Old backup messages will be deleted if sent less than 48h ago."
         bot.send_message(chat_id=msg.chat_id, text=text, reply_markup=self.backup_menu(msg.from_user.username))
+
+    @restricted
+    def generate_backup(self, bot, update):
+        msg = update["message"]
+        bot.send_chat_action(chat_id=msg.chat_id, action=telegram.ChatAction.TYPING)
+        response, error = self.LNwallet.getMultiChannelBackup()
+        if error is not None:
+            bot.send_message(chat_id=msg.chat_id, text="I couldn't generate backup, there was an error.")
+            return
+
+        multi_ch_bytes = b64decode(response["multi_chan_backup"]["multi_chan_backup"])
+        temp_path_local = os.path.join(self.root_dir, "temp", "manual_channel.backup")
+        with open(temp_path_local, "wb") as file:
+            file.write(multi_ch_bytes)
+
+        bot.send_document(chat_id=msg.chat_id, document=open(temp_path_local, "rb"), parse_mode=telegram.ParseMode.HTML,
+                          caption="<b>Multi Channel Backup</b>", filename="channel.backup")
+
+        if os.path.exists(temp_path_local):
+            os.remove(temp_path_local)
 
     @restricted
     def createInvoice(self, bot, update):

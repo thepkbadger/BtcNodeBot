@@ -147,6 +147,9 @@ class Wallet:
     def getInfo(self):
         return self.node.get_ln_info()
 
+    def getMultiChannelBackup(self):
+        return self.node.export_all_channel_backups()
+
     def getChannels(self, page=-1, per_page=-1):
         channels, err = self.node.get_channel_list()
         if err is not None:

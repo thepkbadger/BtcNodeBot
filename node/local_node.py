@@ -345,6 +345,19 @@ class LocalNode:
             logToFile("Exception get_balance_report: " + text)
             return None, text
 
+    def export_all_channel_backups(self):
+        try:
+            request = ln.ChanBackupExportRequest()
+            response = self.stub.ExportAllChannelBackups(request)
+            return MessageToDict(response, including_default_value_fields=True), None
+        except Exception as e:
+            if hasattr(e, "_state") and hasattr(e._state, "details"):
+                text = str(e._state.details)
+            else:
+                text = str(e)
+            logToFile("Exception export_all_channel_backups: " + text)
+            return None, text
+
     def verify_chan_backup(self, single_chan_backups=None, multi_chan_backup=None):
         try:
             if (single_chan_backups is None and multi_chan_backup is None) \
