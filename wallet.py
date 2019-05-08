@@ -43,7 +43,8 @@ class Wallet:
             self.node.subscribe_node_watcher,
             self.node.subscribe_invoices,
             self.node.subscribe_transactions,
-            self.node.subscribe_channel_events
+            self.node.subscribe_channel_events,
+            self.node.subscribe_channel_backups
         ]
         for subscription in subscriptions:
             t = threading.Thread(target=subscription, daemon=True)

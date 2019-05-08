@@ -400,6 +400,31 @@ class LightningStub(object):
         request_serializer=rpc__pb2.ForwardingHistoryRequest.SerializeToString,
         response_deserializer=rpc__pb2.ForwardingHistoryResponse.FromString,
         )
+    self.ExportChannelBackup = channel.unary_unary(
+        '/lnrpc.Lightning/ExportChannelBackup',
+        request_serializer=rpc__pb2.ExportChannelBackupRequest.SerializeToString,
+        response_deserializer=rpc__pb2.ChannelBackup.FromString,
+        )
+    self.ExportAllChannelBackups = channel.unary_unary(
+        '/lnrpc.Lightning/ExportAllChannelBackups',
+        request_serializer=rpc__pb2.ChanBackupExportRequest.SerializeToString,
+        response_deserializer=rpc__pb2.ChanBackupSnapshot.FromString,
+        )
+    self.VerifyChanBackup = channel.unary_unary(
+        '/lnrpc.Lightning/VerifyChanBackup',
+        request_serializer=rpc__pb2.ChanBackupSnapshot.SerializeToString,
+        response_deserializer=rpc__pb2.VerifyChanBackupResponse.FromString,
+        )
+    self.RestoreChannelBackups = channel.unary_unary(
+        '/lnrpc.Lightning/RestoreChannelBackups',
+        request_serializer=rpc__pb2.RestoreChanBackupRequest.SerializeToString,
+        response_deserializer=rpc__pb2.RestoreBackupResponse.FromString,
+        )
+    self.SubscribeChannelBackups = channel.unary_stream(
+        '/lnrpc.Lightning/SubscribeChannelBackups',
+        request_serializer=rpc__pb2.ChannelBackupSubscription.SerializeToString,
+        response_deserializer=rpc__pb2.ChanBackupSnapshot.FromString,
+        )
 
 
 class LightningServicer(object):
@@ -868,7 +893,7 @@ class LightningServicer(object):
   def ForwardingHistory(self, request, context):
     """* lncli: `fwdinghistory`
     ForwardingHistory allows the caller to query the htlcswitch for a record of
-    all HTLC's forwarded within the target time range, and integer offset
+    all HTLCs forwarded within the target time range, and integer offset
     within that time range. If no time-range is specified, then the first chunk
     of the past 24 hrs of forwarding history are returned.
 
@@ -877,6 +902,66 @@ class LightningServicer(object):
     As a result each message can only contain 50k entries.  Each response has
     the index offset of the last entry. The index offset can be provided to the
     request to allow the caller to skip a series of records.
+    """
+    context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+    context.set_details('Method not implemented!')
+    raise NotImplementedError('Method not implemented!')
+
+  def ExportChannelBackup(self, request, context):
+    """* lncli: `exportchanbackup`
+    ExportChannelBackup attempts to return an encrypted static channel backup
+    for the target channel identified by it channel point. The backup is
+    encrypted with a key generated from the aezeed seed of the user. The
+    returned backup can either be restored using the RestoreChannelBackup
+    method once lnd is running, or via the InitWallet and UnlockWallet methods
+    from the WalletUnlocker service.
+    """
+    context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+    context.set_details('Method not implemented!')
+    raise NotImplementedError('Method not implemented!')
+
+  def ExportAllChannelBackups(self, request, context):
+    """*
+    ExportAllChannelBackups returns static channel backups for all existing
+    channels known to lnd. A set of regular singular static channel backups for
+    each channel are returned. Additionally, a multi-channel backup is returned
+    as well, which contains a single encrypted blob containing the backups of
+    each channel.
+    """
+    context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+    context.set_details('Method not implemented!')
+    raise NotImplementedError('Method not implemented!')
+
+  def VerifyChanBackup(self, request, context):
+    """*
+    VerifyChanBackup allows a caller to verify the integrity of a channel backup
+    snapshot. This method will accept either a packed Single or a packed Multi.
+    Specifying both will result in an error.
+    """
+    context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+    context.set_details('Method not implemented!')
+    raise NotImplementedError('Method not implemented!')
+
+  def RestoreChannelBackups(self, request, context):
+    """* lncli: `restorechanbackup`
+    RestoreChannelBackups accepts a set of singular channel backups, or a
+    single encrypted multi-chan backup and attempts to recover any funds
+    remaining within the channel. If we are able to unpack the backup, then the
+    new channel will be shown under listchannels, as well as pending channels.
+    """
+    context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+    context.set_details('Method not implemented!')
+    raise NotImplementedError('Method not implemented!')
+
+  def SubscribeChannelBackups(self, request, context):
+    """*
+    SubscribeChannelBackups allows a client to sub-subscribe to the most up to
+    date information concerning the state of all channel backups. Each time a
+    new channel is added, we return the new set of channels, along with a
+    multi-chan backup containing the backup info for all channels. Each time a
+    channel is closed, we send a new update, which contains new new chan back
+    ups, but the updated set of encrypted multi-chan backups with the closed
+    channel(s) removed.
     """
     context.set_code(grpc.StatusCode.UNIMPLEMENTED)
     context.set_details('Method not implemented!')
@@ -1109,6 +1194,31 @@ def add_LightningServicer_to_server(servicer, server):
           servicer.ForwardingHistory,
           request_deserializer=rpc__pb2.ForwardingHistoryRequest.FromString,
           response_serializer=rpc__pb2.ForwardingHistoryResponse.SerializeToString,
+      ),
+      'ExportChannelBackup': grpc.unary_unary_rpc_method_handler(
+          servicer.ExportChannelBackup,
+          request_deserializer=rpc__pb2.ExportChannelBackupRequest.FromString,
+          response_serializer=rpc__pb2.ChannelBackup.SerializeToString,
+      ),
+      'ExportAllChannelBackups': grpc.unary_unary_rpc_method_handler(
+          servicer.ExportAllChannelBackups,
+          request_deserializer=rpc__pb2.ChanBackupExportRequest.FromString,
+          response_serializer=rpc__pb2.ChanBackupSnapshot.SerializeToString,
+      ),
+      'VerifyChanBackup': grpc.unary_unary_rpc_method_handler(
+          servicer.VerifyChanBackup,
+          request_deserializer=rpc__pb2.ChanBackupSnapshot.FromString,
+          response_serializer=rpc__pb2.VerifyChanBackupResponse.SerializeToString,
+      ),
+      'RestoreChannelBackups': grpc.unary_unary_rpc_method_handler(
+          servicer.RestoreChannelBackups,
+          request_deserializer=rpc__pb2.RestoreChanBackupRequest.FromString,
+          response_serializer=rpc__pb2.RestoreBackupResponse.SerializeToString,
+      ),
+      'SubscribeChannelBackups': grpc.unary_stream_rpc_method_handler(
+          servicer.SubscribeChannelBackups,
+          request_deserializer=rpc__pb2.ChannelBackupSubscription.FromString,
+          response_serializer=rpc__pb2.ChanBackupSnapshot.SerializeToString,
       ),
   }
   generic_handler = grpc.method_handlers_generic_handler(

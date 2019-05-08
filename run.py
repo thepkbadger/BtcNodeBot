@@ -93,6 +93,8 @@ class Bot:
         self.dispatcher.add_handler(btc_exp_handler)
         notif_handler = CommandHandler('notifications', self.notifications_toggle)
         self.dispatcher.add_handler(notif_handler)
+        backup_handler = CommandHandler('backups', self.backups_toggle)
+        self.dispatcher.add_handler(backup_handler)
         walletCancelPayHandler = CommandHandler('cancel_payment', self.cancelPayment)
         self.dispatcher.add_handler(walletCancelPayHandler)
         walletOnchainAddressHandler = CommandHandler('onchain_addr', self.walletOnchainAddress)
@@ -158,6 +160,15 @@ class Bot:
         ]
         notif_menu = build_menu(button_list, n_cols=1)
         return InlineKeyboardMarkup(notif_menu)
+
+    def backup_menu(self, username):
+        backup_state = self.userdata.get_backups_state(username)
+        state1 = "  ✔" if backup_state["chatscb"] else ""
+        button_list = [
+            InlineKeyboardButton("Multi Channel Backup"+state1, callback_data="backup_chatscb")
+        ]
+        backup_menu = build_menu(button_list, n_cols=1)
+        return InlineKeyboardMarkup(backup_menu)
 
     def unit_menu(self):
         button_list = [
@@ -394,6 +405,10 @@ class Bot:
             elif param[0] == "notif":
                 self.userdata.toggle_notifications_state(username, param[1])
                 bot.send_message(chat_id=query.message.chat_id, text="Notifications settings updated.", reply_markup=self.notif_menu(username))
+
+            elif param[0] == "backup":
+                self.userdata.toggle_backups_state(username, param[1])
+                bot.send_message(chat_id=query.message.chat_id, text="Backup settings updated.", reply_markup=self.backup_menu(username))
 
             elif param[0] == "payment":
                 if param[1] == "yes":
@@ -900,6 +915,12 @@ class Bot:
     def notifications_toggle(self, bot, update):
         msg = update["message"]
         bot.send_message(chat_id=msg.chat_id, text="Enable or disable notifications.", reply_markup=self.notif_menu(msg.from_user.username))
+
+    @restricted
+    def backups_toggle(self, bot, update):
+        msg = update["message"]
+        text = "Enable or disable in chat backups. Backups are sent as a file to chat. Old backup messages will be deleted if sent less than 48h ago."
+        bot.send_message(chat_id=msg.chat_id, text=text, reply_markup=self.backup_menu(msg.from_user.username))
 
     @restricted
     def createInvoice(self, bot, update):

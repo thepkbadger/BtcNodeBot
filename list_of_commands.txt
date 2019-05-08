@@ -1,6 +1,7 @@
 bitcoin_unit - Select Bitcoin unit
 block_explorer - Select Block Explorer
 notifications - Toggle notifications on/off
+backups - Enable/disable in chat backups
 node_uri - Get node URI (publickey@host)
 onchain_addr - Get on-chain bech32 or compatibility address
 onchain_send - Send on-chain transaction

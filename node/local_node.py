@@ -9,6 +9,9 @@ from sys import platform
 from helper import logToFile, formatAmount
 from time import sleep
 import telegram
+from base64 import b64decode
+import json
+from shutil import copy
 
 
 class LocalNode:
@@ -25,6 +28,9 @@ class LocalNode:
         self.ln_dir = config["lndir"]
         self.ln_cert_path = config["lncertpath"]
         self.ln_admin_macaroon_path = config["lnadminmacaroonpath"]
+
+        self.scb_on_disk = config["scb_on_disk"]
+        self.scb_on_disk_path = config["scb_on_disk_path"]
 
         self.sub_sleep_retry = 60
         self.sub_sleep_offline = 30
@@ -53,7 +59,7 @@ class LocalNode:
                         lnd_root_dir = join(expandvars("%LOCALAPPDATA%"), "Lnd")
                     elif platform.startswith("linux"):  # linux
                         lnd_root_dir = join(expanduser("~"), ".lnd")
-                    elif platform.startswith("darwin"):  # Mac OS X
+                    elif platform.startswith("darwin"):  # macOS
                         lnd_root_dir = join(expanduser("~"), "Library", "Application Support", "Lnd")
                     else:
                         lnd_root_dir = join(self.root_path, "..", "lnd")
@@ -339,6 +345,26 @@ class LocalNode:
             logToFile("Exception get_balance_report: " + text)
             return None, text
 
+    def verify_chan_backup(self, single_chan_backups=None, multi_chan_backup=None):
+        try:
+            if (single_chan_backups is None and multi_chan_backup is None) \
+                    or (single_chan_backups is not None and multi_chan_backup is not None):
+                return None, "not valid parameters"
+
+            if single_chan_backups is None:
+                request = ln.ChanBackupSnapshot(multi_chan_backup=multi_chan_backup)
+            else:
+                request = ln.ChanBackupSnapshot(single_chan_backups=single_chan_backups)
+            response = self.stub.VerifyChanBackup(request)
+            return MessageToDict(response, including_default_value_fields=True), None
+        except Exception as e:
+            if hasattr(e, "_state") and hasattr(e._state, "details"):
+                text = str(e._state.details)
+            else:
+                text = str(e)
+            logToFile("Exception verify_chan_backup: " + text)
+            return None, text
+
     def subscribe_invoices(self):
 
         while True:
@@ -501,5 +527,79 @@ class LocalNode:
 
             except Exception as e:
                 msg = "LiveFeed LocalNode subscribe transactions: connection lost, will retry after " + str(self.sub_sleep_retry) + " seconds"
+                logToFile(msg)
+                sleep(self.sub_sleep_retry)
+
+    def subscribe_channel_backups(self):
+
+        while True:
+            if not self.nodeOnline:
+                sleep(self.sub_sleep_offline)
+                continue
+
+            try:
+                request = ln.ChannelBackupSubscription()
+                for response in self.stub.SubscribeChannelBackups(request):
+                    json_out = MessageToDict(response, including_default_value_fields=True)
+                    multi_ch_bytes = b64decode(json_out["multi_chan_backup"]["multi_chan_backup"])
+
+                    # save to temp file
+                    temp_path_local = os.path.join(self.root_path, "..", "temp", "channel.backup")
+                    with open(temp_path_local, "wb") as file:
+                        file.write(multi_ch_bytes)
+
+                    # read back file and check the integrity of a backup snapshot
+                    with open(temp_path_local, "rb") as file:
+                        multi_ch_bytes_check = file.read()
+
+                    multi_chan_backup = {
+                        "chan_points": json_out["multi_chan_backup"]["chan_points"],
+                        "multi_chan_backup": multi_ch_bytes_check
+                    }
+                    for ch_point in multi_chan_backup["chan_points"]:
+                        ch_point["funding_txid_bytes"] = b64decode(ch_point["funding_txid_bytes"])[:: -1]
+
+                    json_out_verify, error = self.verify_chan_backup(multi_chan_backup=multi_chan_backup)
+                    msg_verify = "Multi Channel Backup, backup file integrity check failed. "
+                    if error is not None:
+                        logToFile(msg_verify + str(error))
+                        continue
+                    if json_out_verify:  # if json_out_verify is not empty dict than verification failed
+                        logToFile(msg_verify + json.dumps(json_out_verify))
+                        continue
+
+                    # integrity check of backup is successful, we can save file to disk or send in chat
+                    try:
+                        if self.scb_on_disk:
+                            if self.scb_on_disk_path != "" and os.path.exists(self.scb_on_disk_path):
+                                copy(temp_path_local, self.scb_on_disk_path)
+                            else:
+                                copy(temp_path_local, join(self.root_path, "..", "private"))
+                    except Exception as e:
+                        logToFile("Multi Channel Backup, " + str(e))
+
+                    for username in self.userdata.get_usernames():
+                        chat_id = self.userdata.get_chat_id(username)
+                        backups_state = self.userdata.get_backups_state(username)
+                        if chat_id is not None and backups_state["chatscb"] is True:
+                            # delete last backup message
+                            if backups_state["last_scb_backup_msg_id"] is not None:
+                                try:
+                                    self.bot.delete_message(chat_id=chat_id, message_id=backups_state["last_scb_backup_msg_id"])
+                                except Exception as e:
+                                    logToFile("Multi Channel Backup, last backup message cannot be deleted. (probably more than 48h from last message) user="+str(username))
+                            # send new backup file
+                            caption_text = "<b>Multi Channel Backup</b>"
+                            new_message = self.bot.send_document(chat_id=chat_id, document=open(temp_path_local, "rb"), parse_mode=telegram.ParseMode.HTML,
+                                                                    caption=caption_text, filename="channel.backup", disable_notification=True)
+                            # save new backup message id in userdata
+                            if new_message and hasattr(new_message, "message_id"):
+                                self.userdata.set_last_scb_backup_msg_id(username, new_message.message_id)
+
+                    if os.path.exists(temp_path_local):
+                        os.remove(temp_path_local)
+
+            except Exception as e:
+                msg = "LiveFeed LocalNode subscribe channel backups: connection lost, will retry after " + str(self.sub_sleep_retry) + " seconds"
                 logToFile(msg)
                 sleep(self.sub_sleep_retry)

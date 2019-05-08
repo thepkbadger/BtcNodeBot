@@ -4,7 +4,8 @@ from urllib.parse import urlparse, parse_qs
 
 
 def parse_config(file):
-    config = {"bottoken": "", "botwhitelist": [], "bototp": False, "lnhost": "127.0.0.1", "lnport": 10009, "lnnet": "mainnet", "lndir": "", "lncertpath": "", "lnadminmacaroonpath": ""}
+    config = {"bottoken": "", "botwhitelist": [], "bototp": False, "lnhost": "127.0.0.1", "lnport": 10009, "lnnet": "mainnet", "lndir": "", "lncertpath": "", "lnadminmacaroonpath": "",
+              "scb_on_disk": False, "scb_on_disk_path": ""}
 
     try:
         with open(file, "r") as conf_file:
@@ -16,13 +17,13 @@ def parse_config(file):
                 param = line.split("=")
                 if len(param) < 2:
                     continue
-                end_pos = param[1].find(" ")
+                end_pos = param[1].find("#")  # start of comment
                 if end_pos < 0:
                     end_pos = len(param[1])
-                value = param[1][:end_pos]
-                if param[0] in ["bototp"] and (value == "1" or value.lower() == "true"):
+                value = param[1][:end_pos].strip()
+                if param[0] in ["bototp", "scb_on_disk"] and (value == "1" or value.lower() == "true"):
                     config[param[0]] = True
-                elif param[0] in ["bototp"] and (value == "0" or value.lower() == "false"):
+                elif param[0] in ["bototp", "scb_on_disk"] and (value == "0" or value.lower() == "false"):
                     config[param[0]] = False
                 elif param[0] in ["lnport"]:
                     config[param[0]] = int(value)
@@ -53,10 +54,10 @@ def update_config_whitelist(file, new_usernames):
                     if len(param) == 1:
                         lines[idx] = param[0] + "=" + ",".join(new_usernames)
                     elif len(param) > 1:
-                        end_pos = param[1].find(" ")
+                        end_pos = param[1].find("#")
                         rem = ""
                         if end_pos > -1:
-                            rem = param[1][end_pos:]
+                            rem = " " + param[1][end_pos:]
                         lines[idx] = param[0] + "=" + ",".join(new_usernames) + rem
 
                     if len(param) > 2:
