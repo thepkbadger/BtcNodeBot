@@ -215,13 +215,15 @@ class Wallet:
                 return
 
             uri = addr.split('@')
-            if len(uri) != 2:
+            if len(uri) > 2:
                 bot.edit_message_text(chat_id=chat_id, message_id=sending_msg.message_id, text="I couldn't open channel, Node URI not valid.")
                 return
-            conn_response, error_conn = self.node.connect_peer(pubkey=uri[0], host=uri[1])
-            if error_conn is not None and "already" not in error_conn:
-                bot.edit_message_text(chat_id=chat_id, message_id=sending_msg.message_id, text="I couldn't open channel, " + error_conn)
-                return
+
+            if len(uri) == 2:
+                conn_response, error_conn = self.node.connect_peer(pubkey=uri[0], host=uri[1])
+                if error_conn is not None and "already" not in error_conn:
+                    bot.edit_message_text(chat_id=chat_id, message_id=sending_msg.message_id, text="I couldn't open channel, " + error_conn)
+                    return
 
             open_response, error_open = self.node.open_channel(uri[0], local_funding_amount, private, min_htlc_msat, remote_csv_delay, sat_per_byte, target_conf)
             if error_open is not None:
