@@ -122,22 +122,28 @@ class LocalNode:
             return {"online": None, "msg": "Exception: " + text}
 
     def node_status_output(self, response):
-        text = ""
-        if response["online"] is False and self.nodeOnline_prev is True:
-            text = "Lightning node is offline!"
-        elif response["online"] is True:
-            if response["synced"] is False:
-                self.not_synced_count = 0 if self.not_synced_count == 4 else self.not_synced_count + 1
-                if self.not_synced_count == 0:
-                    text = "Lightning node not synced!\nNode height: " + str(response["block_height"])
-            elif self.nodeOnline_prev is False:
-                text = "Lightning node is online."
+        try:
+            text = ""
+            if response["online"] is False and self.nodeOnline_prev is True:
+                text = "Lightning node is offline!"
+            elif response["online"] is True:
+                if response["synced"] is False:
+                    self.not_synced_count = 0 if self.not_synced_count == 4 else self.not_synced_count + 1
+                    if self.not_synced_count == 0:
+                        text = "Lightning node not synced!\nNode height: " + str(response["block_height"])
+                elif self.nodeOnline_prev is False:
+                    text = "Lightning node is online."
 
-        if text != "":
-            for username in self.userdata.get_usernames():
-                chat_id = self.userdata.get_chat_id(username)
-                if chat_id is not None and self.userdata.get_notifications_state(username)["node"] is True:
-                    self.bot.send_message(chat_id=chat_id, text=text, parse_mode=telegram.ParseMode.HTML)
+            if text != "":
+                for username in self.userdata.get_usernames():
+                    chat_id = self.userdata.get_chat_id(username)
+                    if chat_id is not None and self.userdata.get_notifications_state(username)["node"] is True:
+                        self.bot.send_message(chat_id=chat_id, text=text, parse_mode=telegram.ParseMode.HTML)
+
+        except Exception as e:
+            text = "Exception LocalNode node_status_output: " + str(e)
+            logToFile(text)
+            print(text)
 
     def subscribe_node_watcher(self):
         try:
