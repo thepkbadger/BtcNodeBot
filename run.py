@@ -412,6 +412,8 @@ class Bot:
             elif param[0] == "backup":
                 self.userdata.toggle_backups_state(username, param[1])
                 bot.send_message(chat_id=query.message.chat_id, text="Backup settings updated.", reply_markup=self.backup_menu(username))
+                if self.userdata.get_backups_state(username)["chatscb"] is True:
+                    self.LNwallet.check_backups_updated()
 
             elif param[0] == "payment":
                 if param[1] == "yes":

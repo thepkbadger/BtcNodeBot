@@ -11,7 +11,7 @@ class UserData:
         "wallet": {
             "invoice": None,
             "notifications": {"node": True, "transactions": True, "invoices": True, "chevents": True},
-            "backups": {"chatscb": True, "last_scb_backup_msg_id": None},
+            "backups": {"chatscb": True, "last_scb_backup_msg_id": None, "last_scb_backup_file_id": None, "last_scb_backup_chan_points": []},
             "default_explorer_tx": "https://blockstream.info/tx/",
             "default_node_search_link": "https://1ml.com/node/",
             "selected_unit": "sats",
@@ -111,6 +111,14 @@ class UserData:
 
     def set_last_scb_backup_msg_id(self, username, msg_id):
         self.data[username]["wallet"]["backups"]["last_scb_backup_msg_id"] = msg_id
+        self.save_userdata()
+
+    def set_last_scb_backup_file_id(self, username, file_id):
+        self.data[username]["wallet"]["backups"]["last_scb_backup_file_id"] = file_id
+        self.save_userdata()
+
+    def set_last_scb_backup_chan_points(self, username, chan_points):
+        self.data[username]["wallet"]["backups"]["last_scb_backup_chan_points"] = copy.deepcopy(chan_points)
         self.save_userdata()
 
     def set_chat_id(self, username, chat_id):
