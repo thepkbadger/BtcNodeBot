@@ -14,6 +14,7 @@ import json
 from shutil import copy
 from threading import Lock, Thread
 from copy import deepcopy
+import re
 
 
 class LocalNode:
@@ -30,6 +31,7 @@ class LocalNode:
         self.ln_dir = config["lndir"]
         self.ln_cert_path = config["lncertpath"]
         self.ln_admin_macaroon_path = config["lnadminmacaroonpath"]
+        self.ln_version = {"major": -1, "minor": -1, "patch": -1}
 
         self.scb_on_disk = config["scb_on_disk"]
         self.scb_on_disk_path = config["scb_on_disk_path"]
@@ -86,6 +88,25 @@ class LocalNode:
             self.stub = lnrpc.LightningStub(channel)
         except Exception as e:
             logToFile("Exception init_ln_connection: " + str(e))
+
+    def parse_ln_version(self, getinfo_output):
+        try:
+            if not getinfo_output or "version" not in getinfo_output:
+                return
+
+            # version string example: 0.6.0-beta commit=v0.6-beta (https://semver.org/)
+            version_string = getinfo_output["version"]
+            result = re.match("^(?P<major>[0-9]+)\.(?P<minor>[0-9]+)\.(?P<patch>[0-9]+)", version_string)
+            if result:
+                self.ln_version = {"major": -1, "minor": -1, "patch": -1}  # reset version
+                for key, value in result.groupdict().items():
+                    if value:
+                        self.ln_version[key] = int(value)
+                    else:
+                        self.ln_version[key] = -1
+
+        except Exception as e:
+            logToFile("Exception parse_ln_version: " + str(e))
 
     def update_channel_backups(self):
         try:
@@ -178,6 +199,7 @@ class LocalNode:
                     self.init_ln_connection()  # initialize gRPC
 
                 lninfo, err_ln_getinfo = self.get_ln_info(log_enabled=False)
+                self.parse_ln_version(lninfo)
                 self.nodeOnline_prev = self.nodeOnline
 
                 if err_ln_getinfo is not None:
@@ -508,6 +530,9 @@ class LocalNode:
                 sleep(self.sub_sleep_offline)  # if we know node is offline, sleep and retry
                 continue
 
+            if self.ln_version["major"] == 0 and self.ln_version["minor"] < 6:
+                return
+
             try:
                 request = ln.ChannelEventSubscription()
                 for response in self.stub.SubscribeChannelEvents(request):
@@ -641,6 +666,9 @@ class LocalNode:
             if not self.nodeOnline:
                 sleep(self.sub_sleep_offline)
                 continue
+
+            if self.ln_version["major"] == 0 and self.ln_version["minor"] < 6:
+                return
 
             try:
                 # check if channel backups exists if not or not updated, save or send new backup file

@@ -56,6 +56,9 @@ class Wallet:
         t = threading.Thread(target=self.node.update_channel_backups, daemon=True)
         t.start()
 
+    def ln_node_version(self):
+        return self.node.ln_version
+
     def check_otp(self, code):
         if self.enable_otp is False:
             return True

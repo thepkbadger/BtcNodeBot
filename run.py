@@ -154,13 +154,16 @@ class Bot:
         state1 = "  ✔" if notif_state["node"] else ""
         state2 = "  ✔" if notif_state["transactions"] else ""
         state3 = "  ✔" if notif_state["invoices"] else ""
-        state4 = "  ✔" if notif_state["chevents"] else ""
         button_list = [
             InlineKeyboardButton("Node status (offline, not synced)"+state1, callback_data="notif_node"),
             InlineKeyboardButton("On-Chain transactions"+state2, callback_data="notif_transactions"),
-            InlineKeyboardButton("Received LN payments"+state3, callback_data="notif_invoices"),
-            InlineKeyboardButton("Channel Events (new opened, closed)"+state4, callback_data="notif_chevents")
+            InlineKeyboardButton("Received LN payments"+state3, callback_data="notif_invoices")
         ]
+        ln_version = self.LNwallet.ln_node_version()
+        if (ln_version["major"] == 0 and ln_version["minor"] > 5) or ln_version["major"] > 0 or ln_version["major"] == -1:
+            state4 = "  ✔" if notif_state["chevents"] else ""
+            button_list.append(InlineKeyboardButton("Channel Events (new opened, closed)"+state4, callback_data="notif_chevents"))
+
         notif_menu = build_menu(button_list, n_cols=1)
         return InlineKeyboardMarkup(notif_menu)
 
@@ -900,8 +903,12 @@ class Bot:
         if self.userdata.get_chat_id(msg.from_user.username) is None:
             self.userdata.set_chat_id(msg.from_user.username, msg.chat_id)
 
+        ln_version = self.LNwallet.ln_node_version()
         text = "<b>Command List</b>\n"
         for c in self.commands:
+            # ignore unsupported commands
+            if ln_version["major"] == 0 and ln_version["minor"] < 6 and any(subs in c for subs in ["backups", "generate_backup"]):
+                continue
             text += "/" + c
         text += "\n\nTo pay LN invoice just send picture of a QR code or directly paste invoice text in chat."
         bot.send_message(chat_id=msg.chat_id, text=text, parse_mode=telegram.ParseMode.HTML)
@@ -924,6 +931,12 @@ class Bot:
     @restricted
     def backups_toggle(self, bot, update):
         msg = update["message"]
+
+        ln_version = self.LNwallet.ln_node_version()
+        if ln_version["major"] == 0 and ln_version["minor"] < 6:
+            bot.send_message(chat_id=msg.chat_id, text="This feature is not supported, please upgrade lnd.")
+            return
+
         text = "Enable or disable in-chat backups. Backups are sent as a file to chat each time channel is opened or closed." \
                + " Old backup messages will be deleted if sent less than 48h ago."
         bot.send_message(chat_id=msg.chat_id, text=text, reply_markup=self.backup_menu(msg.from_user.username))
@@ -931,6 +944,12 @@ class Bot:
     @restricted
     def generate_backup(self, bot, update):
         msg = update["message"]
+
+        ln_version = self.LNwallet.ln_node_version()
+        if ln_version["major"] == 0 and ln_version["minor"] < 6:
+            bot.send_message(chat_id=msg.chat_id, text="This feature is not supported, please upgrade lnd.")
+            return
+
         bot.send_chat_action(chat_id=msg.chat_id, action=telegram.ChatAction.TYPING)
         response, error = self.LNwallet.getMultiChannelBackup()
         if error is not None:
