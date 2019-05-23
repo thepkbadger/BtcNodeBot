@@ -62,9 +62,7 @@ class Bot:
         self.access_whitelist_user = self.config["botwhitelist"]
 
         if self.config["bottoken"] == "":
-            text = "No bot token found in btcnodebot.conf. Please use @BotFather to create telegram bot and acquire token."
-            print(text)
-            logToFile(text)
+            logToFile("No bot token found in btcnodebot.conf. Please use @BotFather to create telegram bot and acquire token.")
             return
 
         temp_path = os.path.join(self.root_dir, "temp")

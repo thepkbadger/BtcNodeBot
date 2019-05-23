@@ -249,9 +249,7 @@ class LocalNode:
                         self.bot.send_message(chat_id=chat_id, text=text, parse_mode=telegram.ParseMode.HTML)
 
         except Exception as e:
-            text = "Exception LocalNode node_status_output: " + str(e)
-            logToFile(text)
-            print(text)
+            logToFile("Exception LocalNode node_status_output: " + str(e))
 
     def subscribe_node_watcher(self):
         try:
@@ -261,9 +259,7 @@ class LocalNode:
                 sleep(self.node_watcher_sleep)
 
         except Exception as e:
-            text = "Exception LiveFeed LocalNode subscribe node watcher: " + str(e)
-            logToFile(text)
-            print(text)
+            logToFile("Exception LiveFeed LocalNode subscribe_node_watcher: " + str(e))
 
     def decode_ln_invoice(self, pay_req):
         try:
