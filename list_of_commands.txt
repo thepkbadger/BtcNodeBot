@@ -10,3 +10,4 @@ block_explorer - Select Block Explorer
 notifications - Toggle notifications on/off
 backups - Enable/disable in-chat backups
 generate_backup - Get multi-channel backup
+plot_channel_stats - Plot channel statistics

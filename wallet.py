@@ -9,6 +9,7 @@ import threading
 from time import sleep
 import telegram
 from base64 import b64decode
+from plot import Plot
 
 
 class Wallet:
@@ -364,6 +365,20 @@ class Wallet:
         except Exception as e:
             text = str(e)
             logToFile("Exception at getBalance: "+text)
+            return None, text
+
+    def plot_channel_stats(self, plot_type="cdbar"):
+        try:
+            channels, err = self.node.get_channel_list()
+            if err is None:
+                info, err_info = self.node.get_ln_info()
+                p = Plot(channels["channels"], node_info=info)
+                image_name = p.plot_cap_dist(plot_type)
+                return image_name, None
+            return None, err
+        except Exception as e:
+            text = str(e)
+            logToFile("Exception plot_channel_stats: " + text)
             return None, text
 
     def formatBalanceOutput(self, data, username, lb_symbol="\n"):

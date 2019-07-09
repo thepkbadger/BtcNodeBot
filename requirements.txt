@@ -9,3 +9,4 @@ grpcio-tools
 googleapis-common-protos
 protobuf
 Pillow
+matplotlib

@@ -86,6 +86,8 @@ class Bot:
 
         start_handler = CommandHandler('start', self.start)
         self.dispatcher.add_handler(start_handler)
+        plot_handler = CommandHandler('plot_channel_stats', self.plotStats)
+        self.dispatcher.add_handler(plot_handler)
         btc_unit_handler = CommandHandler('bitcoin_unit', self.select_unit)
         self.dispatcher.add_handler(btc_unit_handler)
         btc_exp_handler = CommandHandler('block_explorer', self.select_explorer)
@@ -280,6 +282,14 @@ class Bot:
 
         channels_menu = build_menu(button_list, n_cols=1)
         return InlineKeyboardMarkup(channels_menu), None
+
+    def plot_stats_menu(self):
+        button_list = [
+            InlineKeyboardButton("Capacity Distribution - bar plot", callback_data="stats_cdbar"),
+            InlineKeyboardButton("Capacity Distribution - scatter plot", callback_data="stats_cdscatter")
+        ]
+        stats_menu = build_menu(button_list, n_cols=1)
+        return InlineKeyboardMarkup(stats_menu)
 
     # -------------------------------
     def executeOnchainTx(self, username, chat_id, code_otp=""):
@@ -573,6 +583,18 @@ class Bot:
                     self.executeOpeningChannel(username, query.message.chat_id)
                 elif param[1] == "no":
                     self.cancelOpeningChannel(bot, update)
+
+            elif param[0] == "stats":
+                bot.send_chat_action(chat_id=query.message.chat_id, action=telegram.ChatAction.TYPING)
+                image_name, error = self.LNwallet.plot_channel_stats(plot_type=param[1])
+                image_file = os.path.join(self.root_dir, "temp", image_name)
+                if error is None and os.path.exists(image_file):
+                    bot.send_photo(chat_id=query.message.chat_id, photo=open(image_file, "rb"))
+                else:
+                    bot.send_message(chat_id=query.message.chat_id, text="Error at plotting data.")
+
+                if os.path.exists(image_file):
+                    os.remove(image_file)
 
             else:
                 bot.send_message(chat_id=query.message.chat_id, text="callback parameters not valid")
@@ -1114,6 +1136,11 @@ class Bot:
                          text="Enter <i>Node URI</i> and <i>Amount</i>, everything else is optional.",
                          reply_markup=self.open_channel_menu(), parse_mode=telegram.ParseMode.HTML)
         self.userdata.set_conv_state(msg.from_user.username, "openChannel")
+
+    @restricted
+    def plotStats(self, bot, update):
+        msg = update["message"]
+        bot.send_message(chat_id=msg.chat_id, text="Select plot type.", reply_markup=self.plot_stats_menu())
 
 if __name__ == "__main__":
     btcnodebot = Bot()
