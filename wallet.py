@@ -332,6 +332,7 @@ class Wallet:
                     "onchain_unconfirmed": response["onchain"]["unconfirmed_balance"],
                     "num_channels": len(response["ln"]["channels"]),
                     "num_active": 0,
+                    "num_private": 0,
                     "channels": {
                         "effective_outbound_capacity": 0,
                         "effective_inbound_capacity": 0,
@@ -345,6 +346,9 @@ class Wallet:
                 for channel in response["ln"]["channels"]:
                     balance["channels"]["outbound_capacity"] += int(channel["local_balance"])
                     balance["channels"]["inbound_capacity"] += int(channel["remote_balance"])
+
+                    if channel["private"]:
+                        balance["num_private"] += 1
 
                     if channel["active"]:
                         num_active += 1
@@ -386,10 +390,14 @@ class Wallet:
             int(data["onchain_total"]), int(data["onchain_confirmed"]), int(data["onchain_unconfirmed"]),
             int(data["channels"]["outbound_capacity"]), int(data["channels"]["inbound_capacity"])
         ]
+        private_ch_num = ""
+        if data["num_private"] > 0:
+            private_ch_num = "<i>--Private channels: " + str(data["num_private"]) + "</i>" + lb_symbol
 
         text = "<i>🔗 On-chain:</i>" + lb_symbol \
             + "Total: {0}" + lb_symbol + "Confirmed: {1}" + lb_symbol + "Unconfirmed: {2}" + lb_symbol + lb_symbol \
             + "<i>⚡ Lightning channels: ("+str(data["num_active"])+"/"+str(data["num_channels"])+")</i>" + lb_symbol \
+            + private_ch_num \
             + "<i>--Capacities</i>" + lb_symbol \
             + "Local: {3}" + lb_symbol \
             + "Remote: {4}"
